@@ -130,8 +130,8 @@ if __name__ == "__main__":
 
     # %%
     (math.prod(A.shape) 
-     == sum(A.get_class_size(icls)*A.get_class_multiplicity(icls)
-            for icls in A.index_classes)
+     == sum(A.get_class_size(σcls)*A.get_class_multiplicity(σcls)
+            for σcls in A.perm_classes)
      == A.dim**A.rank
      == 1296)
 
@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
 # %% [markdown]
 # ### `_itercounts`
-# Helper function for `SymmetricTensor.index_classes`.  
+# Helper function for `SymmetricTensor.perm_classes`.  
 # Returns iterator, which generates all unique sets of index counts in the string representation of an index class up to permutation. For example, the counts for class `'iij'` are represented as `[2, 1]`. The resulting output has the shape $[[c_1, \dots], [c_1', \dots], \dots]$. Each list can have variable length, depending on the number of unique indices in that set.
 #
 # This function uses recursion to deal with the variable length of the count list. It applies three rules:
@@ -293,37 +293,37 @@ def _subindex_iter(mult: Tuple[int], dim: int, prev_i: int, assigned_i: Set[int]
 
 
 # %%
-def index_iter(index_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
+def index_iter(perm_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
     """
     Given an index class and a dimension, return a generator which yields all
     the indices for that class, in the order in which they would be stored as
     a flat vector.
     """
-    rank = sum(index_class)
+    rank = sum(perm_class)
     idx = []
     
-    if len(index_class) == 1:  # Diagonal terms
+    if len(perm_class) == 1:  # Diagonal terms
         for i in range(dim):
             yield (i,)*rank
-    elif len(index_class) > dim:
+    elif len(perm_class) > dim:
         # Cannot have more distinct indices than than there are dimensions
         # => return an empty iterator
         return
     else:
         for i in range(dim):
-            m = index_class[0]
-            for subidx in _subindex_iter(index_class, dim, i, set()):
+            m = perm_class[0]
+            for subidx in _subindex_iter(perm_class, dim, i, set()):
                 yield tuple(reversed(subidx + [i]*m))
 
 
 # %% [markdown]
 # ### Indexing utilities
 #
-# `_get_index_class`: Given either a tuple of numerical indices (`(3, 0, 3)`) or string indices (`('j','i', 'j')`), return the tuple representing the index class it belongs to (`(2, 1)`).
+# `_get_perm_class`: Given either a tuple of numerical indices (`(3, 0, 3)`) or string indices (`('j','i', 'j')`), return the tuple representing the index class it belongs to (`(2, 1)`).
 # Note that a string index must be split into a tuple of single chars.
 
 # %%
-def _get_index_class(key: Tuple[int,str]) -> Tuple[int]:
+def _get_perm_class(key: Tuple[int,str]) -> Tuple[int]:
     """
     Given either a tuple of numerical indices (`(3, 0, 3)`) or string indices 
     (`('j','i', 'j')`), return the tuple representing the index class it 
@@ -337,7 +337,7 @@ def _get_index_class(key: Tuple[int,str]) -> Tuple[int]:
 
 
 # %% [markdown]
-# `_get_index_class_size`: Return the number of independent components in the given index class.
+# `_get_perm_class_size`: Return the number of independent components in the given index class.
 # Computed as
 # $$s_{\hat{I}} = \frac{d(d-1)\dotsb(d-l+1)}{m_1!m_2!\dotsb m_r!} \,,$$
 # where $r$ is the rank, $l$ is the number of different indices in the class and $m_n$ is the number of different indices which appear $n$ times in $I$. Examples:
@@ -348,8 +348,8 @@ def _get_index_class(key: Tuple[int,str]) -> Tuple[int]:
 # |`(1,1,1)`  | `ijk`           | 3   | 3, 0, 0 |
 
 # %%
-def _get_index_class_size(index_class: Tuple[int], dim: int) -> int:
-    counts = index_class
+def _get_perm_class_size(perm_class: Tuple[int], dim: int) -> int:
+    counts = perm_class
     rank = sum(counts)
     l = len(counts)
     permutable_groups = [counts.count(c) for c in range(1, rank+1)]
@@ -380,14 +380,14 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # - *dim*  → `int`
 # - *dtype* → (e.g.) `dtype('float64')`
 # - *rank* → `int`
-# - *index_classes* → (e.g.) `['iii', 'iij', 'ijk']`
+# - *perm_classes* → (e.g.) `['iii', 'iij', 'ijk']`
 # - *shape* → $(d,d,\dotsc)$
 # - *size*  → `int` (total number of independent components)
 # - *flat*       → Iterator over all components, including symmetric equivalents. See also *indep_iter*.
 # - *flat_index* → Indices aligned with *flat*.
 #
 # **Public methods**
-# - *get_index_class(index: Tuple[int])*: From a specific index (`(0,0,1)`), return class string (`'iij'`).
+# - *get_perm_class(index: Tuple[int])*: From a specific index (`(0,0,1)`), return class string (`'iij'`).
 # - *get_class_label(repeats: Tuple[int])*: Convert index class tuple (repeats) (`(2,1)`) to class string (e.g. `'iij'`).
 # - *get_class_tuple(class_label: str)*: Convert index class string to class tuple (repeats).
 # - *indep_iter(class_label: Optional[str])*     : Iterator over independent components (i.e. *excluding* symmetric equivalents).
@@ -434,21 +434,21 @@ class SymmetricTensor:
         self.rank = rank
         self.dim = dim
         self._data = {tuple(repeats): 0 for repeats in _indexcounts(rank, rank, rank)}
-        self._class_sizes = {tuple(repeats): _get_index_class_size(repeats, self.dim)
+        self._class_sizes = {tuple(repeats): _get_perm_class_size(repeats, self.dim)
                              for repeats in self._data}
         self._class_multiplicities = {tuple(repeats): multinom(self.rank, repeats)
                                       for repeats in self._data}
 
     @classmethod
-    def get_index_class(cls, key: Tuple[int]) -> str:
+    def get_perm_class(cls, key: Tuple[int]) -> str:
         """
         Given an *index tuple* (NOT a class), return the string of the
         index class containing it.
         """
-        icls = ""
-        for count, s in zip(_get_index_class(key), cls.indices):
-            icls += s*count
-        return icls
+        σcls = ""
+        for count, s in zip(_get_perm_class(key), cls.indices):
+            σcls += s*count
+        return σcls
     
     @classmethod
     def get_class_label(cls, index_repeats: Tuple[int]) -> str:
@@ -468,8 +468,8 @@ class SymmetricTensor:
     
     def __repr__(self):
         s = f"SymmetricTensor(rank: {self.rank}, dim: {self.dim})"
-        lines = [f"  {self.get_class_label(icls)}: {value}"
-                 for icls, value in self._data.items()]
+        lines = [f"  {self.get_class_label(σcls)}: {value}"
+                 for σcls, value in self._data.items()]
         return "\n".join((s, *lines))
     
     def _convert_dense_index(self, key: Union[Tuple[int],int]
@@ -481,10 +481,10 @@ class SymmetricTensor:
         if isinstance(key, tuple):
             # Use the standardized key so that it matches values returned by index_iter
             key = _get_index_representative(key)
-            icls = _get_index_class(key)
-            for i, idx in enumerate(index_iter(icls, self.dim)):
+            σcls = _get_perm_class(key)
+            for i, idx in enumerate(index_iter(σcls, self.dim)):
                 if key == idx:
-                    return icls, i
+                    return σcls, i
             if len(key) < self.rank:
                 raise IndexError(
                     "Partial indexing (where the number of indices is less "
@@ -522,52 +522,52 @@ class SymmetricTensor:
         .. Note:: slices are not yet supported.
         """
         if isinstance(key, str):
-            repeats = _get_index_class(tuple(key))
+            repeats = _get_perm_class(tuple(key))
             return self._data[repeats]
         elif isinstance(key, tuple):
-            icls, pos = self._convert_dense_index(key)
-            return self._data[icls][pos]
+            σcls, pos = self._convert_dense_index(key)
+            return self._data[σcls][pos]
     
     def __setitem__(self, key, value):
         if isinstance(key, str):
-            repeats = _get_index_class(tuple(key))
+            repeats = _get_perm_class(tuple(key))
             if repeats not in self._data:
                 raise KeyError(f"'{key}' does not match any index class.\n"
-                               f"Index classes: {self.index_classes}.")
+                               f"Index classes: {self.perm_classes}.")
             if np.isscalar(value):
                 self._data[repeats] = value
             else:
-                if len(value) != _get_index_class_size(repeats, self.dim):
+                if len(value) != _get_perm_class_size(repeats, self.dim):
                     raise ValueError(
                         "Value must either be a scalar, or match the index "
                         f"class size.\nValue size: {len(value)}\n"
-                        f"Index class size: {_get_index_class_size(repeats, self.dim)}")
+                        f"Index class size: {_get_perm_class_size(repeats, self.dim)}")
                 if isinstance(value, (list, tuple)):
                     value = np.array(value)
                 self._data[repeats] = value
         else:
-            icls, pos = self._convert_dense_index(key)
-            v = self._data[icls]
+            σcls, pos = self._convert_dense_index(key)
+            v = self._data[σcls]
             if np.isscalar(v):
                 if pos == slice(None):  # Equivalent to setting the whole index class
-                    self._data[icls] = value
+                    self._data[σcls] = value
                 elif np.isscalar(value) and v == value:
                     # Value has not changed; no need to expand
                     pass
                 else:
                     # Value is no longer uniform for all positions => need to expand storage from scalar to vector
-                    v = v * np.ones(self._class_sizes[icls], dtype=np.result_type(v))
+                    v = v * np.ones(self._class_sizes[σcls], dtype=np.result_type(v))
                     v[pos] = value
-                    self._data[icls] = v
+                    self._data[σcls] = v
             else:
-                self._data[icls][pos] = value
+                self._data[σcls][pos] = value
             
     @property
-    def index_classes(self) -> List[str]:
+    def perm_classes(self) -> List[str]:
         """
         Return all index class strings as a list.
         """
-        return [self.get_class_label(icls) for icls in self._data.keys()]
+        return [self.get_class_label(σcls) for σcls in self._data.keys()]
     
     @property
     def dtype(self) -> np.dtype:
@@ -677,7 +677,7 @@ class SymmetricTensor:
            `NumPy docs <https://numpy.org/doc/stable/reference/arrays.indexing.html#advanced-indexing>`_.)
         """
         if class_label is None:
-            for label in self.index_classes:
+            for label in self.perm_classes:
                 yield from self.index_iter(label)
         else:
             self._check_class_label(class_label)
@@ -722,7 +722,7 @@ class SymmetricTensor:
         #assert len(class_label) == self.rank
         #counts = list(filter(None, self.get_index_repeats(class_label)))
         #  # `filter` removes zero counts
-        #return _get_index_class_size(counts, self.dim)
+        #return _get_perm_class_size(counts, self.dim)
     
     def get_class_multiplicity(self, class_label: str) -> List[int]:
         """
@@ -759,7 +759,7 @@ if __name__ == "__main__":
             sym = sys.getsizeof(A)
             sym += sum(sys.getsizeof(k) + sys.getsizeof(v) for k,v in A.__dict__.items())
             sym += sum(sys.getsizeof(k) for k in A._data)
-            sym += sum(A.get_class_size(icls)*8 + 104 for icls in A.index_classes)
+            sym += sum(A.get_class_size(σcls)*8 + 104 for σcls in A.perm_classes)
             # Append data point
             points.append((dim, sym/dense))
         curves.append(hv.Curve(points, kdims=['dimensions'], vdims=['size (rel. to dense)'],
@@ -780,7 +780,7 @@ if __name__ == "__main__":
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
             yield SymmetricTensor(rank=r, dim=d)
-    assert SymmetricTensor(rank=4, dim=3).index_classes == \
+    assert SymmetricTensor(rank=4, dim=3).perm_classes == \
         ['iiii', 'iiij', 'iijj', 'iijk', 'ijkl']
 
 # %% [markdown]
@@ -789,13 +789,13 @@ if __name__ == "__main__":
 # The tests below confirm that the index classes form a partition of tensor indices: the sum of their class sizes equals the total number of independent components in a symmetric tensor, which is given by
 # $$\binom{d + r - 1}{r}\,.$$
 # This is a well-known expression; it can be found for example [here](http://www.physics.mcgill.ca/~yangob/symmetric%20tensor.pdf).  
-# This test gives us good confidence that the methods `index_classes` and `get_class_size` are correctly implemented.
+# This test gives us good confidence that the methods `perm_classes` and `get_class_size` are correctly implemented.
 
     # %%
     for A in test_tensors():
         r = A.rank
         d = A.dim
-        assert (sum(A.get_class_size(icls) for icls in A.index_classes)
+        assert (sum(A.get_class_size(σcls) for σcls in A.perm_classes)
                 == math.prod(range(d, d+r)) / math.factorial(r))
 
 # %% [markdown]
@@ -807,8 +807,8 @@ if __name__ == "__main__":
     for A in test_tensors():
         r = A.rank
         d = A.dim
-        assert (sum(A.get_class_size(icls) * A.get_class_multiplicity(icls)
-                    for icls in A.index_classes)
+        assert (sum(A.get_class_size(σcls) * A.get_class_multiplicity(σcls)
+                    for σcls in A.perm_classes)
                 == d**r)
 
 # %% [markdown]
@@ -832,8 +832,8 @@ if __name__ == "__main__":
 
     # %%
     for A in test_tensors():
-        assert all(len(list(A.index_iter(icls))) == len(list(A.indep_iter(icls)))
-                   for icls in A.index_classes)
+        assert all(len(list(A.index_iter(σcls))) == len(list(A.indep_iter(σcls)))
+                   for σcls in A.perm_classes)
         assert len(list(A.index_iter())) == len(list(A.indep_iter())) == A.size
         assert len(list(A.flat)) == len(list(A.flat_index)) == A.dim**A.rank
 
@@ -856,9 +856,9 @@ if __name__ == "__main__":
     assert A['iij'] is A._data[(2,1)]
     
     b = 0
-    sizes = [A.get_class_size(icls) for icls in A.index_classes]
-    for icls, size in zip(A.index_classes, sizes):
-        A[icls] = np.arange(b, b+size)
+    sizes = [A.get_class_size(σcls) for σcls in A.perm_classes]
+    for σcls, size in zip(A.perm_classes, sizes):
+        A[σcls] = np.arange(b, b+size)
         b += size
     
     assert A[1, 1, 1] == A['iii'][1]
