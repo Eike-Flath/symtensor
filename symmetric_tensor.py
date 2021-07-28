@@ -391,6 +391,7 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # - *index_iter(class_label: Optional[str])*     : Indices aligned with *indep_iter*. Each index includes all symmetric components, such that equivalent components of a dense tensor can be set or retrieved simulatneously.
 # - *get_class_size(class_label: str)* : Number of independent components in an index class, i.e. the size of the storage vector.
 # - *get_class_multiplicity(class_label: str)*: Number of times components in this index class are repeated in the full tensor.
+# - *todense()*
 #
 # **Supported indexing**
 # - `A['iij']` → 1D vector of values for this class.
