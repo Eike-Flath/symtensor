@@ -4,14 +4,11 @@
 #   jupytext:
 #     formats: py:percent,ipynb
 #     notebook_metadata_filter: -jupytext.text_representation.jupytext_version
+#     notebook_metadata_filter: -jupytext.kernelspec
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#   kernelspec:
-#     display_name: Python (statGLOW)
-#     language: python
-#     name: statglow
 # ---
 
 # %% [markdown]
