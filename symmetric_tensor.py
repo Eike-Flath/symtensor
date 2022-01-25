@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: statGLOW
+#     display_name: Python (statGLOW)
 #     language: python
 #     name: statglow
 # ---
@@ -736,7 +736,45 @@ class SymmetricTensor(Serializable):
                     self._data[σcls] = v
             else:
                 self._data[σcls][pos] = value
-       
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
+            if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
+                A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
+                if isinstance(A, (int, float)): 
+                    C = self.__class__(dim=A.dim, rank=A.rank)
+                    for σcls in C.perm_classes:
+                        C[σcls] = ufunc(A, B[σcls])
+                    return C
+                elif isinstance(B, (int, float)):
+                    C = self.__class__(dim=A.dim, rank=A.rank)
+                    for σcls in C.perm_classes:
+                        C[σcls] = ufunc(A[σcls], B)
+                    return C
+                elif A.dim != B.dim or A.rank != B.rank:
+                    return NotImplemented
+                else:
+                    C = self.__class__(dim=A.dim, rank=A.rank)
+                    for σcls in C.perm_classes:
+                        C[σcls] = ufunc(A[σcls], B[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
+                    return C
+            elif ufunc in {np.exp, np.sin, np.cos, np.tan, np.cosh, np.sinh, np.tanh, np.sign, np.abs, np.sqrt, np.log}:  # Set of all ufuncs we want to support
+                A, = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
+                C = self.__class__(dim=A.dim, rank=A.rank)
+                for σcls in C.perm_classes:
+                    C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
+                return C
+        else:
+            return NotImplemented  # NB: This is different from `raise NotImplementedError`
+        
+    def __add__(self, other):
+        return np.add(self, other)
+    def __mul__(self, other):
+        return np.multiply(self, other)
+    def __sub__(self,other): 
+        C = other*(-1)
+        return np.add(self, C)
+    
     ## Public attributes & API ##
     
     @property
@@ -768,6 +806,11 @@ class SymmetricTensor(Serializable):
         for idx, value in zip(self.index_iter(), self.indep_iter()):
             A[idx] = value
         return A
+    
+    @classmethod
+    def is_subσcls(σcls: str, subσcls: str) -> bool:  # Could be considered public
+        return _is_subσcls(cls.get_class_tuple(σcls),
+                           cls.get_class_tuple(subσcls))
     
     ## Iterators ##
             
@@ -931,49 +974,7 @@ class SymmetricTensor(Serializable):
             raise ValueError(f"A tensor of rank {self.rank} expects a class "
                              f"label with {self.rank} indices. Received the "
                              f"label '{class_label}'.")
-    
-    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
-            if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
-                A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
-                if isinstance(A, (int, float)): 
-                    C = self.__class__(dim=A.dim, rank=A.rank)
-                    for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A, B[σcls])
-                    return C
-                elif isinstance(B, (int, float)):
-                    C = self.__class__(dim=A.dim, rank=A.rank)
-                    for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A[σcls], B)
-                    return C
-                elif A.dim != B.dim or A.rank != B.rank:
-                    return NotImplemented
-                else:
-                    C = self.__class__(dim=A.dim, rank=A.rank)
-                    for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A[σcls], B[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
-                    return C
-            elif ufunc in {np.exp, np.sin, np.cos, np.tan, np.cosh, np.sinh, np.tanh, np.sign, np.abs, np.sqrt, np.log}:  # Set of all ufuncs we want to support
-                A, = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
-                C = self.__class__(dim=A.dim, rank=A.rank)
-                for σcls in C.perm_classes:
-                    C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
-                return C
-        else:
-            return NotImplemented  # NB: This is different from `raise NotImplementedError`
-        
-    def __add__(self, other):
-        return np.add(self, other)
-    def __mul__(self, other):
-        return np.multiply(self, other)
-    def __sub__(self,other): 
-        C = other*(-1)
-        return np.add(self, C)
-    
-    @classmethod
-    def is_subσcls(σcls: str, subσcls: str) -> bool:  # Could be considered public
-        return _is_subσcls(cls.get_class_tuple(σcls),
-                           cls.get_class_tuple(subσcls))
+
     @staticmethod
     def _is_subσcls(σcls: Tuple[int], subσcls: Tuple[int]) -> bool:
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
@@ -1187,7 +1188,7 @@ if __name__ == "__main__":
 # [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCLigZ1cIl1cbiAgXG4gICAgc3R5bGUgTiBmaWxsOm5vbmUsIHN0cm9rZTpub25lIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifSwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)](https://mermaid-js.github.io/mermaid-live-editor/edit##eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCJcdOKBnVwiXVxuICBcbiAgICBzdHlsZSBOIGZpbGw6bm9uZSwgc3Ryb2tlOm5vbmUiLCJtZXJtYWlkIjoie1xuICBcInRoZW1lXCI6IFwiZGVmYXVsdFwiXG59IiwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)
 
 # %% [markdown]
-# ## Algebra 
+# ## Arithmetic 
 
 # %%
 if __name__ == "__main__": 
