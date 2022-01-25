@@ -970,6 +970,13 @@ class SymmetricTensor(Serializable):
         C = other*(-1)
         return np.add(self, C)
     
+    @classmethod
+    def is_subσcls(σcls: str, subσcls: str) -> bool:  # Could be considered public
+        return _is_subσcls(cls.get_class_tuple(σcls),
+                           cls.get_class_tuple(subσcls))
+    @staticmethod
+    def _is_subσcls(σcls: Tuple[int], subσcls: Tuple[int]) -> bool:
+        return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
 
 # %%
@@ -1112,6 +1119,29 @@ if __name__ == "__main__":
     assert A[0, 0, 3] == A['iij'][2]   # Preceded by: (0,0,1),(0,0,2)
     assert A[2, 2, 3] == A['iij'][10]  # Preceded by: (0,0,1–4),(1,1,0),(1,1,2–4),(2,2,0–1)
     assert A[1, 2, 3] == A['ijk'][6]   # Preceded by: (0,1,2—4),(0,2,3–4),(0,3,4)
+
+    # %%
+    # Rank 3
+    assert SymmetricTensor.is_subσcls('iii', 'ii')
+    assert SymmetricTensor.is_subσcls('iij', 'ij')
+    assert SymmetricTensor.is_subσcls('ijk', 'ij')
+    assert not SymmetricTensor.is_subσcls('iii', 'ij')
+    assert not SymmetricTensor.is_subσcls('ijk', 'ii')
+    # Rank 4
+    assert SymmetricTensor.is_subσcls('iiii', 'iii')
+    assert SymmetricTensor.is_subσcls('iiii', 'ii')
+    assert SymmetricTensor.is_subσcls('iijj', 'ij')
+    assert SymmetricTensor.is_subσcls('iijj', 'iij')
+    assert SymmetricTensor.is_subσcls('iijk', 'iij')
+    assert SymmetricTensor.is_subσcls('iijk', 'ijk')
+    assert SymmetricTensor.is_subσcls('iijk', 'ij')
+    assert SymmetricTensor.is_subσcls('iijk', 'i')
+    assert not SymmetricTensor.is_subσcls('iiii', 'ij')
+    assert not SymmetricTensor.is_subσcls('iiii', 'ijk')
+    assert not SymmetricTensor.is_subσcls('iijj', 'ijk')
+    assert not SymmetricTensor.is_subσcls('iijk', 'ijkl')
+    assert not SymmetricTensor.is_subσcls('iijk', 'iijj')
+    assert not SymmetricTensor.is_subσcls('iijj', 'iii')
 
 # %% [markdown]
 # ### Assignement
