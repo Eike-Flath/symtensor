@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: Python (statGLOW)
+#     display_name: statGLOW
 #     language: python
 #     name: statglow
 # ---
@@ -517,7 +517,7 @@ class SymmetricTensor(Serializable):
     _data                : Dict[Tuple[int], Union[float, Array[float,1]]]
     _class_sizes         : Dict[Tuple[int], int]
     _class_multiplicities: Dict[Tuple[int], int]
-        # NB: Internally we use the index counts instead of the equivalent
+        # NB: Internally we use the index counts instead of the equivalent
         # string to represent classes, since it is more useful for calculations
     
     def __init__(self, rank: int, dim: int,
@@ -687,6 +687,7 @@ class SymmetricTensor(Serializable):
           corresponding to that permutation class.
         - If `key` is a tuple, treat it as a tuple from a dense array and
           return the corresponding value.
+        - If 'key' is an int, return a rank C of rank= self.rank -1 such that C.todense()[ = self.todense()[key,:,...,:]
           
         .. Note:: slices are not yet supported.
         """
@@ -698,8 +699,40 @@ class SymmetricTensor(Serializable):
             vals = self._data[σcls]
             return vals if np.isscalar(vals) else vals[pos]
         elif isinstance(key, int):
+            if self.dim ==1: 
+                σcls, pos = self._convert_dense_index(key)
+                vals = self._data[σcls]
+                return vals if np.isscalar(vals) else vals[pos]
+            elif self.dim >1: 
+                B = SymmetricTensor(dim=self.dim, rank=self.rank-1)
+                
+                def σcls_subset_with_i(self, i, J, σcls): 
+                    '''
+                    Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
+                    This function extracts all entries in the current tensor, which are compatible with the σcls+i, where i is an integer, and
+                    the other entries come from J.
+                    For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index: 
+                    (0,0,1)
+                    '''
+                    σcls_data = self._data[self.get_class_tuple(σcls)]
+                    if isinstance(σcls_data, (list,np.ndarray)):
+                        return [σcls_data[k] for k, K in enumerate(self.index_class_iter(σcls))
+                                                       if sorted((i, *J)) == sorted(K)]
+                    else:
+                        return [σcls_data for k, K in enumerate(self.index_class_iter(σcls))
+                                                       if sorted((i, *J)) == sorted(K)]
+                for σbcls in B.perm_classes:
+                    B[σbcls] = [np.mean(np.fromiter( 
+                                    itertools.chain.from_iterable( (
+                                        σcls_subset_with_i(self, key, J, σacls)
+                                        for σacls in A.perm_classes if self.is_subσcls(σacls,σbcls) ) ),
+                                    dtype=self.dtype))
+                                # Use fancy indexing to retrieve multiple values simultaneously
+                                # Averaging is done to symmetrize the array
+                                for j, J in enumerate(B.index_class_iter(σbcls))]
+                return B
+
             # Return a scalar (if dim = 1) or a dense tensor (if dim > 1)
-            raise NotImplementedError
         else:
             raise KeyError(f"{key}")
     
@@ -808,9 +841,16 @@ class SymmetricTensor(Serializable):
         return A
     
     @classmethod
-    def is_subσcls(σcls: str, subσcls: str) -> bool:  # Could be considered public
-        return _is_subσcls(cls.get_class_tuple(σcls),
-                           cls.get_class_tuple(subσcls))
+    def is_subσcls(self, σcls: str, subσcls: str) -> bool:  # Could be considered public
+        '''
+        Check if subσcls is a sub permutation class of σcls. 
+        Both σcls and subσcls are strings where the entries denote the number of repetitions of a single index. 
+        For example 'iiij' is the permutation class of indices of a fourth order tensor where all indices are equal but one. 
+        Then 'iij' is a subσcls of σcls, 
+        but 'ijk' is not a subσcls of 'iiij', because for 'ijk', there have to be at least three different indices.
+        '''
+        return self._is_subσcls(self.get_class_tuple(σcls),
+                           self.get_class_tuple(subσcls))
     
     ## Iterators ##
             
@@ -977,10 +1017,14 @@ class SymmetricTensor(Serializable):
 
     @staticmethod
     def _is_subσcls(σcls: Tuple[int], subσcls: Tuple[int]) -> bool:
+        '''
+        Check if subσcls is a sub permutation class of σcls. 
+        Both σcls and subσcls are tuples where the entries denote the number of repetitions of a single index. 
+        For example σcls = (3,1) corresponds to ther σcls string 'iiij'. Then (2,1) <-> 'iij' is a subσcls of σcls, 
+        but (1,1,1) <-> 'ijk' is not a subσcls of 'iiij' <-> (3,1).
+        '''
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
-
-# %%
 
 # %% [markdown]
 # ## Memory footprint
@@ -1120,6 +1164,11 @@ if __name__ == "__main__":
     assert A[0, 0, 3] == A['iij'][2]   # Preceded by: (0,0,1),(0,0,2)
     assert A[2, 2, 3] == A['iij'][10]  # Preceded by: (0,0,1–4),(1,1,0),(1,1,2–4),(2,2,0–1)
     assert A[1, 2, 3] == A['ijk'][6]   # Preceded by: (0,1,2—4),(0,2,3–4),(0,3,4)
+    
+    #subtensor generation
+    for A in test_tensors():
+        for i in range(A.dim):
+            assert (A[i].todense() == A.todense()[i]).any()
 
     # %%
     # Rank 3
