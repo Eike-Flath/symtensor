@@ -463,6 +463,36 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 
 
 # %% [markdown]
+# `partition_list_into_two`:
+#  Generate pairs of lists, with different lengths, length 1 and length 2, such that each pair contains all elements of the list. Order does not matter, but it treats the elements of the list as if they were all different. Thus a total of 
+#  $$ \binom{\text{length}}{\text{length } 1} $$
+#  pairs is created. 
+#  
+#  Example: 
+#  [1,1,5] can be paired into pairs of lists with lengths 1,2 in the following ways: 
+#  
+# | length `1` |length `2`|
+# |------------|----------|
+# |`[1]`       | `[1,5]`  |
+# |`[1]`       | `[5,1]`  |
+# |`[5]`       | `[1,1]`  |
+
+# %%
+def partition_list_into_two(lst, size1, size2):
+    '''
+    return all pairs of sublists of lst, where the order of the elements in the sublists is ignored. 
+    '''
+    assert size1 +size2 == len(lst), 'sizes must sum to length of lst'
+    
+    indices = range(len(lst))
+    indices_1 = list(itertools.combinations(indices, size1))
+    indices_2 = [list(set(indices).difference(set(idcs1))) for idcs1 in indices_1]
+    lsts_1 = [[lst[i] for i in idcs1] for idcs1 in indices_1]
+    lsts_2 = [[lst[i] for i in idcs2] for idcs2 in indices_2]
+    return lsts_1, lsts_2
+
+
+# %% [markdown]
 # ### `SymmetricTensor`
 #
 # **Public attributes**
@@ -764,11 +794,25 @@ class SymmetricTensor(Serializable):
                     pass
                 else:
                     # Value is no longer uniform for all positions => need to expand storage from scalar to vector
-                    v = v * np.ones(self._class_sizes[σcls], dtype=np.result_type(v))
+                    v = v * np.ones(self._class_sizes[σcls], dtype=np.result_type(v, value))
                     v[pos] = value
                     self._data[σcls] = v
             else:
                 self._data[σcls][pos] = value
+                
+    def outer_product(self,other, ufunc=np.multiply):
+        '''
+        Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
+        The result generated here is the symmetrized version of the outer product. 
+        '''
+        if self.dim != other.dim:
+            raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
+        else:
+            C = self.__class__(dim=self.dim, rank=self.rank+other.rank)
+            for I in C.index_class_iter():
+                list1, list2 = partition_list_into_two(I, self.rank, other.rank)
+                C[I] = np.mean( [np.multiply(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] )
+            return C
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
@@ -797,6 +841,9 @@ class SymmetricTensor(Serializable):
                 for σcls in C.perm_classes:
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
+        elif method == "outer":
+            A, B = inputs 
+            return self.outer_product(B, ufunc = ufunc, **kwargs)
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
         
@@ -1026,6 +1073,10 @@ class SymmetricTensor(Serializable):
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
 
+# %%
+
+# %%
+
 # %% [markdown]
 # ## Memory footprint
 # Memory required to store tensors, as a percentage of an equivalent tensor with dense storage.
@@ -1165,10 +1216,22 @@ if __name__ == "__main__":
     assert A[2, 2, 3] == A['iij'][10]  # Preceded by: (0,0,1–4),(1,1,0),(1,1,2–4),(2,2,0–1)
     assert A[1, 2, 3] == A['ijk'][6]   # Preceded by: (0,1,2—4),(0,2,3–4),(0,3,4)
     
+
+
+    # %%
     #subtensor generation
     for A in test_tensors():
         for i in range(A.dim):
             assert (A[i].todense() == A.todense()[i]).any()
+
+
+    # %%
+    #outer product
+    A = next(test_tensors())
+    B = next(test_tensors())
+    Ad = A.todense()
+    Bd = B.todense()
+    assert (np.multiply.outer(A,B).todense() == np.multiply.outer(Ad,Bd)).any()
 
     # %%
     # Rank 3
@@ -1245,11 +1308,11 @@ if __name__ == "__main__":
     dim = 2
     #test addition
     test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
-    test_tensor_1['iiii'] = 1
-    test_tensor_2 = np.add(test_tensor_1,1)
+    test_tensor_1['iiii'] = 1.0
+    test_tensor_2 = np.add(test_tensor_1,1.0)
     test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
     for σcls in test_tensor_3.perm_classes:
-                test_tensor_3[σcls] = 1
+                test_tensor_3[σcls] = 1.0
     test_tensor_4 =  test_tensor_2 - test_tensor_3
     for σcls in test_tensor_3.perm_classes:
             assert test_tensor_4[σcls] == test_tensor_1[σcls]
@@ -1263,3 +1326,33 @@ if __name__ == "__main__":
     #test log, exp
     for σcls in test_tensor_8.perm_classes:
             assert test_tensor_8[σcls] == test_tensor_2[σcls]
+            
+    
+    #outer product
+    def transpose(A, axes):
+        return np.transpose(A, axes)
+    from itertools import permutations
+    
+    def symmetrize(dense_tensor):
+        D = dense_tensor.ndim
+        n = np.prod(range(1,D+1))  # Factorial – number of permutations
+        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
+    
+    test_tensor_1d = test_tensor_1.todense()
+    test_tensor_2d = test_tensor_2.todense()
+    test_tensor_3d = test_tensor_3.todense()
+    
+    test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
+    assert (test_tensor_8.todense() == symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).any()
+    test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
+    assert (test_tensor_9.todense() == symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d))).any()
+    
+    test_tensor_10 = SymmetricTensor(rank=1, dim=2)
+    test_tensor_10['i'] = [1,0]
+    test_tensor_11 = SymmetricTensor(rank=1, dim=2)
+    test_tensor_11['i'] = [0,1]
+    test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
+    assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
+    assert test_tensor_12['ij'] == 0.5
+
+    
