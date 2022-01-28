@@ -63,18 +63,18 @@ __all__ = ["SymmetricTensor"]
 # - Iterating over particular permutation classes (e.g. all terms of the form `'iijk'`).
 # - Iterating over the entire tensor, when the order does not matter.
 # - Broadcasted operations on permutation classes.
-# - Random access of a specific entry.  
+# - Random access of a specific entry.
 #   (The current implementation is not quite $\mathcal{O}(1)$, but compensates by the much lower memory size compared to a dense array.)
 #
 # **Situations for which a `SymmetricTensor` may be less well suited:**
 #
-# - Slicing a tensor as a normal array (per axis).  
+# - Slicing a tensor as a normal array (per axis).
 #   (It might be possible to implement this, although with additional overhead compared to normal arrays.)
-# - Broadcasted operations on the whole tensor.  
+# - Broadcasted operations on the whole tensor.
 #   (While it might possible to get this to work, it likely would not be much faster than just looping.)
-# - Unsupported array operations.  
+# - Unsupported array operations.
 #   Most operations (like `.dot`) are not implemented, but could be added as needed.
-#   
+#
 # In short, with a `SymmetricTensor` one gains a much reduced memory footprint for large tensors and very efficient operations on permutation classes, which are paid for by less efficient operations on the tensor as a whole.
 
 # %% [markdown]
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
     # %%
     A = SymmetricTensor(rank=4, dim=6)
-    display(A)
+    #display(A)
 
 # %% [markdown]
 # Each permutation class can be assigned either a scalar, or an array of length matching the number of independent components of that class. For example, to make a tensor with 1 on the diagonal and different non-zero values for the double paired terms `'iijj'`, we can do the following.
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     # %%
     A['iiii'] = 1
     A['iijj'] = np.arange(A.get_class_size('iijj'))
-    display(A)
+    #display(A)
 
 # %% [markdown]
 # The `indep_iter` and `index_iter` methods can be used to obtain a list of values where *each independent component appears exactly once*. Note that component values stored as scalars are expanded to the size of their class.
@@ -204,7 +204,7 @@ if __name__ == "__main__":
 # To get the size of the full tensor, we need to multiply each permutation class $\hat{σ}$ size by its multiplicity $γ_{\hat{σ}}$ (the number of times components of that class are repeated due to symmetry).
 
     # %%
-    (math.prod(A.shape) 
+    (math.prod(A.shape)
      == sum(A.get_class_size(σcls)*A.get_class_multiplicity(σcls)
             for σcls in A.perm_classes)
      == A.dim**A.rank
@@ -226,7 +226,7 @@ if __name__ == "__main__":
 # %% [markdown]
 # ### Ingredients
 #
-# - [x] Function which, from a rank $r$, construct a list of permutation classes which partition the set of indices (each index belongs to exactly one class).  
+# - [x] Function which, from a rank $r$, construct a list of permutation classes which partition the set of indices (each index belongs to exactly one class).
 #   $r=3 \to \{iii, iij, ijk\}$
 # - [x] Function which infers the permutation class from a tuple of actual indices.
 #   + `SymmetricTensor.get_perm_class`
@@ -264,18 +264,18 @@ if __name__ == "__main__":
 
 # %% [markdown]
 # ### `_indexcounts`
-# Helper function for `SymmetricTensor.perm_classes`.  
+# Helper function for `SymmetricTensor.perm_classes`.
 # Returns iterator, which generates all unique sets of index counts in the string representation of a permutation class up to permutation. For example, the counts for class `'iij'` are represented as `[2, 1]`. The resulting output has the shape $[[c_1, \dots], [c_1', \dots], \dots]$. Each list can have variable length, depending on the number of unique indices in that set.
 #
 # This function uses recursion to deal with the variable length of the count list. It applies three rules:
-# - The *number of indices* must not exceed the rank.  
+# - The *number of indices* must not exceed the rank.
 #   This is enforced with the `remaining_idcs` argument.
-# - The *sum of counts* must not exceed the rank.  
+# - The *sum of counts* must not exceed the rank.
 #   This is enforced with the `remaining_counts` argument.
-# - A count $c_k$ cannot be greater than $c_{k-1}$  
+# - A count $c_k$ cannot be greater than $c_{k-1}$
 #   This avoids duplicates like `'iij'` and `ijj`
 #   and is enforced with the `max_count` argument.
-#   
+#
 # > The particular case when `remaining_counts` = `max_count` = 0 is treated specially, to ensureit  returns `[[]]` (rather than `[[0]]`).
 
 # %%
@@ -304,7 +304,7 @@ def _indexcounts(remaining_idcs, remaining_counts, max_count):
 # ### `multinom`
 # Applies
 # $$\binom{n}{k_1,k_2,\dotsc,k_m} = \binom{n}{k_1} \binom{n-k_1}{k_2} \dotsb \binom{n-\sum_{i<m} k_i}{k_m} \,.$$
-# Each binomial term is computed with `math.comb`.  
+# Each binomial term is computed with `math.comb`.
 # The $k_i$ terms are first sorted, since $\binom{n}{k}$ is less computationally expensive when $k$ is close to 0 or $n$.
 
 # %%
@@ -313,7 +313,7 @@ def multinom(n: int, klst: List[int]) -> int:
     s = sum(klst)
     if s < n:
         warn("Extending `klst` so that Σk = n.")
-        klst.append(n-s) 
+        klst.append(n-s)
     elif s > n:
         raise ValueError("Sum of `klst` values exceeds n.")
     nlst = [n] + list(n - np.cumsum(klst[:-1]))
@@ -336,7 +336,7 @@ def multinom(n: int, klst: List[int]) -> int:
 #
 # Note that the index generator is aware of index equivalences due to symmetry, which is why in the latter example, `(1,1,0,0)` is not returned. In other words, only one representative from each index class is returned.
 #
-# The implementation iterates through index positions from left to right and exploits the fact that index class representatives are ordered from highest to lowest index multiplicity: if the multiplicities of the current ($j$) and previous ($i$) indices match, then they are permutable, and only values $j > i$ are returned. Thus, the logic for generating the indices $j$ at a single position looks as follows:  
+# The implementation iterates through index positions from left to right and exploits the fact that index class representatives are ordered from highest to lowest index multiplicity: if the multiplicities of the current ($j$) and previous ($i$) indices match, then they are permutable, and only values $j > i$ are returned. Thus, the logic for generating the indices $j$ at a single position looks as follows:
 # [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggTFJcbiAgICBpbnB1dHNbcHJldmlvdXMgaW5kZXg6IGk8YnI-Y3VycmVudCBpbmRleDogajxicj5tdWx0aXBsaWNpdHkgb2YgaTogbWk8YnI-bXVsdGlwbGljaXR5IG9mIGo6IG1qPGJyPmFzc2lnbmVkIGluZGljZXM6IEldICAtLT4gQ3ttaSA9PSBtaiA_fVxuICAgIEMgLS0-fHllc3wgRFtcInlpZWxkIGogPiBpLCBqIOKIiSBJXCJdXG4gICAgQyAtLT58bm98IEVbXCJ5aWVsZCBqIOKJoCBpLCBqIOKIiSBJXCJdIiwibWVybWFpZCI6e30sInVwZGF0ZUVkaXRvciI6ZmFsc2UsImF1dG9TeW5jIjp0cnVlLCJ1cGRhdGVEaWFncmFtIjpmYWxzZX0)](https://mermaid-js.github.io/mermaid-live-editor/edit/##eyJjb2RlIjoiZ3JhcGggTFJcbiAgICBpbnB1dHNbcHJldmlvdXMgaW5kZXg6IGk8YnI-Y3VycmVudCBpbmRleDogajxicj5tdWx0aXBsaWNpdHkgb2YgaTogbWk8YnI-bXVsdGlwbGljaXR5IG9mIGo6IG1qPGJyPmFzc2lnbmVkIGluZGljZXM6IEldICAtLT4gQ3ttaSA9PSBtaiA_fVxuICAgIEMgLS0-fHllc3wgRFtcInlpZWxkIGogPiBpLCBqIOKIiSBJXCJdXG4gICAgQyAtLT58bm98IEVbXCJ5aWVsZCBqIOKJoCBpLCBqIOKIiSBcIl0iLCJtZXJtYWlkIjoie30iLCJ1cGRhdGVFZGl0b3IiOmZhbHNlLCJhdXRvU3luYyI6dHJ1ZSwidXBkYXRlRGlhZ3JhbSI6ZmFsc2V9)
 #
 # > **NOTE** Each index returned is only one of possibly many equivalent permutations. The `SymmetricTensor.index_iter` method, in contrast to this function, combines all these permutations (i.e. all elements of the index class) into a single “[advanced index]”(https://numpy.org/doc/stable/reference/arrays.indexing.html#advanced-indexing).
@@ -386,7 +386,7 @@ def index_iter(perm_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
     """
     rank = sum(perm_class)
     idx = []
-    
+
     if len(perm_class) == 0:  # Rank-0 tensor
         # Single, scalar value; associated to empty tuple
         yield ()
@@ -413,10 +413,10 @@ def index_iter(perm_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
 # %%
 def _get_perm_class(key: Tuple[int,str]) -> Tuple[int]:
     """
-    Given either a tuple of numerical indices (`(3, 0, 3)`) or string indices 
-    (`('j','i', 'j')`), return the tuple representing the permutation class it 
+    Given either a tuple of numerical indices (`(3, 0, 3)`) or string indices
+    (`('j','i', 'j')`), return the tuple representing the permutation class it
     belongs to (`(2, 1)`).
-    
+
     .. Caution:: Note that a string index must be split into a tuple of single
        chars.
     """
@@ -464,13 +464,13 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 
 # %% [markdown]
 # `partition_list_into_two`:
-#  Generate pairs of lists, with different lengths, length 1 and length 2, such that each pair contains all elements of the list. Order does not matter, but it treats the elements of the list as if they were all different. Thus a total of 
+#  Generate pairs of lists, with different lengths, length 1 and length 2, such that each pair contains all elements of the list. Order does not matter, but it treats the elements of the list as if they were all different. Thus a total of
 #  $$ \binom{\text{length}}{\text{length } 1} $$
-#  pairs is created. 
-#  
-#  Example: 
-#  [1,1,5] can be paired into pairs of lists with lengths 1,2 in the following ways: 
-#  
+#  pairs is created.
+#
+#  Example:
+#  [1,1,5] can be paired into pairs of lists with lengths 1,2 in the following ways:
+#
 # | length `1` |length `2`|
 # |------------|----------|
 # |`[1]`       | `[1,5]`  |
@@ -480,10 +480,10 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # %%
 def partition_list_into_two(lst, size1, size2):
     '''
-    return all pairs of sublists of lst, where the order of the elements in the sublists is ignored. 
+    return all pairs of sublists of lst, where the order of the elements in the sublists is ignored.
     '''
     assert size1 +size2 == len(lst), 'sizes must sum to length of lst'
-    
+
     indices = range(len(lst))
     indices_1 = list(itertools.combinations(indices, size1))
     indices_2 = [list(set(indices).difference(set(idcs1))) for idcs1 in indices_1]
@@ -526,13 +526,13 @@ def partition_list_into_two(lst, size1, size2):
 #
 # **Remarks**
 #
-# - Partial or sliced indexing is not currently supported.  
+# - Partial or sliced indexing is not currently supported.
 #   This could certainly be done, although it would require some indexing gymnastics
-# - Similarly, the `__iter__` method is not implemented.  
+# - Similarly, the `__iter__` method is not implemented.
 #   To be consistent with a dense array, the produced iterator should yield
 #   `SymmetricTensor` objects of rank `k-1` corresponding to partial indexing
 #   along the first dimension.
-# - Arithmetic operations are not currently supported.  
+# - Arithmetic operations are not currently supported.
 #   Elementwise operations between tensors of the same size and rank can be trivially implemented when the need arises; other operations (like `.dot`) should be possible with some more work.
 
 # %%
@@ -541,7 +541,7 @@ class SymmetricTensor(Serializable):
     On creation, defaults to a zero tensor.
     """
     indices: ClassVar[str] = "ijklmnαβγδ"
-    
+
     rank                 : int
     dim                  : int
     _data                : Dict[Tuple[int], Union[float, Array[float,1]]]
@@ -549,7 +549,7 @@ class SymmetricTensor(Serializable):
     _class_multiplicities: Dict[Tuple[int], int]
         # NB: Internally we use the index counts instead of the equivalent
         # string to represent classes, since it is more useful for calculations
-    
+
     def __init__(self, rank: int, dim: int,
                  data: Optional[Union[Tuple[int,...], str], Array[float,1]]=None):
         self.rank = rank
@@ -585,7 +585,7 @@ class SymmetricTensor(Serializable):
                                      f"but the provided data has shape {v.shape}.")
             # Replace blank data with the provided data
             self._data = data
-        
+
     ## Pydantic serialization ##
     class Data(BaseModel):
         rank: int
@@ -596,16 +596,36 @@ class SymmetricTensor(Serializable):
         def json_encoder(cls, symtensor: SymmetricTensor):
             return cls(rank=symtensor.rank, dim=symtensor.dim,
                        data={str(k): v for k,v in symtensor._data.items()})
-        
+
     ## Translation functions ##
     # Mostly used internally, but part of the public API
-        
+    
+    def copy(self): 
+        '''
+        Return a copy of the current tensor
+        '''
+        return SymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
+    
+    def is_equal(self, other): 
+        '''
+        Check current SymmetricTensor is equal to other. 
+        '''
+        if not isinstance(other, SymmetricTensor): 
+            raise TypeError("Both tensors must be instances of SymmetricTensor for comparison")
+        equal = True
+        for idx in self.index_class_iter(): 
+            if not self[idx] == other[idx]:
+                equal = False
+                break
+        return equal
+            
+    
     @classmethod
     def get_perm_class(cls, key: Tuple[int]) -> str:
         """
         Given an index tuple, return the string of the permutation class
         to which it belongs.
-        
+
         Usage:
         >>> A = SymmetricTensor(rank=4, dim=6)
         >>> A.get_perm_class((5,0,1,0))
@@ -615,14 +635,14 @@ class SymmetricTensor(Serializable):
         for count, s in zip(_get_perm_class(key), cls.indices):
             σcls += s*count
         return σcls
-    
+
     @classmethod
     def get_class_label(cls, index_repeats: Tuple[int]) -> str:
         """
         Convert an index from tuple (repeat) to string representation.
         """
         return ''.join((s*c for s,c in zip(cls.indices, index_repeats)))
-    
+
     @classmethod
     def get_class_tuple(cls, class_label: str) -> Tuple[int]:
         """
@@ -631,14 +651,14 @@ class SymmetricTensor(Serializable):
         return tuple(sorted(
             (class_label.count(s) for s in set(class_label)),
             reverse=True))
-        
+
     def get_index_repeats(self, class_label: str) -> List[int]:
         """
         Return the number of times each index is repeated.
         Always returns a list of length equal to rank, padding with zero
         if necessary.
         The sum of the returned values always equals the length of `class_label`
-        
+
         Differences with `get_class_tuple`:
         - Raises `ValueError` if the length of the label doesn't match the
           tensor's rank.
@@ -646,7 +666,7 @@ class SymmetricTensor(Serializable):
         """
         self._check_class_label(class_label)
         return [class_label.count(s) for s in self.indices[:self.rank]]
-    
+
     def get_class_size(self, class_label: str) -> int:
         """
         Return the number of independent components in the permutation class
@@ -654,7 +674,7 @@ class SymmetricTensor(Serializable):
         """
         self._check_class_label(class_label)
         return self._class_sizes[self.get_class_tuple(class_label)]
-    
+
     def get_class_multiplicity(self, class_label: str) -> List[int]:
         """
         Return the number of times each component in the permutation class given
@@ -662,15 +682,15 @@ class SymmetricTensor(Serializable):
         """
         self._check_class_label(class_label)
         return multinom(self.rank, self.get_index_repeats(class_label))
-    
+
     ## Dunder methods ##
-    
+
     def __repr__(self):
         s = f"SymmetricTensor(rank: {self.rank}, dim: {self.dim})"
         lines = [f"  {self.get_class_label(σcls)}: {value}"
                  for σcls, value in self._data.items()]
         return "\n".join((s, *lines)) + "\n"  # Lists of SymmetricTensors look better if each tensor starts on its own line
-    
+
     def _convert_dense_index(self, key: Union[Tuple[int],int]
                             ) -> Tuple[Tuple[int,...], int]:
         """
@@ -709,7 +729,7 @@ class SymmetricTensor(Serializable):
             raise TypeError(f"Unrecognized index type '{type(key)}' (value: {key}).\n"
                             f"{type(self).__name__} only supports strings "
                             "and integer tuples as keys.")
-    
+
     def __getitem__(self, key):
         """
         Two paths:
@@ -718,30 +738,56 @@ class SymmetricTensor(Serializable):
         - If `key` is a tuple, treat it as a tuple from a dense array and
           return the corresponding value.
         - If 'key' is an int, return a rank C of rank= self.rank -1 such that C.todense()[ = self.todense()[key,:,...,:]
-          
+
         .. Note:: slices are not yet supported.
         """
+        '''
+        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
+        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
+        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
+        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
+        '''
         if isinstance(key, str):
             repeats = _get_perm_class(tuple(key))
             return self._data[repeats]
+        
         elif isinstance(key, tuple):
-            σcls, pos = self._convert_dense_index(key)
-            vals = self._data[σcls]
-            return vals if np.isscalar(vals) else vals[pos]
-        elif isinstance(key, int):
-            if self.dim ==1: 
+            if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
+                indices_fixed = [i for i in key if isinstance(i,int)]
+                slices = [i for i in key if isinstance(i,slice)]
+                #Check for subslicing
+                subslicing = False
+                for s in slices: 
+                    if any([x is not None for x in [s.start,s.step,s.stop]]): 
+                        subslicing = True
+                        raise NotImplementedError("Indexing with subslicing (for example SymmetricTensor[1:3, 0,0]) is not"
+                                                  " currently implemented. Only slices of the type"
+                                                  "[i_1,...,i_n,:,...,:] with i_1,..., i_n all integers are allowed.")
+                
+                if not subslicing: 
+                    C = self.copy()
+                    for i in indices_fixed: 
+                        C = C[i]
+                    return C
+                    
+            else:
                 σcls, pos = self._convert_dense_index(key)
                 vals = self._data[σcls]
                 return vals if np.isscalar(vals) else vals[pos]
-            elif self.dim >1: 
+        elif isinstance(key, int):
+            if self.dim ==1:
+                σcls, pos = self._convert_dense_index(key)
+                vals = self._data[σcls]
+                return vals if np.isscalar(vals) else vals[pos]
+            elif self.dim >1:
                 B = SymmetricTensor(dim=self.dim, rank=self.rank-1)
-                
-                def σcls_subset_with_i(self, i, J, σcls): 
+
+                def σcls_subset_with_i(self, i, J, σcls):
                     '''
                     Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
                     This function extracts all entries in the current tensor, which are compatible with the σcls+i, where i is an integer, and
                     the other entries come from J.
-                    For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index: 
+                    For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index:
                     (0,0,1)
                     '''
                     σcls_data = self._data[self.get_class_tuple(σcls)]
@@ -752,20 +798,18 @@ class SymmetricTensor(Serializable):
                         return [σcls_data for k, K in enumerate(self.index_class_iter(σcls))
                                                        if sorted((i, *J)) == sorted(K)]
                 for σbcls in B.perm_classes:
-                    B[σbcls] = [np.mean(np.fromiter( 
+                    B[σbcls] = [np.mean(np.fromiter(
                                     itertools.chain.from_iterable( (
                                         σcls_subset_with_i(self, key, J, σacls)
-                                        for σacls in A.perm_classes if self.is_subσcls(σacls,σbcls) ) ),
+                                        for σacls in self.perm_classes if self.is_subσcls(σacls,σbcls) ) ),
                                     dtype=self.dtype))
                                 # Use fancy indexing to retrieve multiple values simultaneously
                                 # Averaging is done to symmetrize the array
                                 for j, J in enumerate(B.index_class_iter(σbcls))]
                 return B
-
-            # Return a scalar (if dim = 1) or a dense tensor (if dim > 1)
         else:
             raise KeyError(f"{key}")
-    
+
     def __setitem__(self, key, value):
         if isinstance(key, str):
             repeats = _get_perm_class(tuple(key))
@@ -799,11 +843,11 @@ class SymmetricTensor(Serializable):
                     self._data[σcls] = v
             else:
                 self._data[σcls][pos] = value
-                
+
     def outer_product(self,other, ufunc=np.multiply):
         '''
         Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
-        The result generated here is the symmetrized version of the outer product. 
+        The result generated here is the symmetrized version of the outer product.
         '''
         if self.dim != other.dim:
             raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
@@ -814,11 +858,31 @@ class SymmetricTensor(Serializable):
                 C[I] = np.mean( [np.multiply(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] )
             return C
 
+    def tensordot(self,other, axes=2):
+        '''
+        like numpy.tensordot, but outputs are all symmetrized if it is an outer product.
+        '''
+        if not isinstance(other, SymmetricTensor):
+            raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
+        if self.dim != other.dim:
+            raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
+        if isinstance(axes,int):
+            if axes ==0:
+                return self.outer_product(other)
+            elif axes ==1:
+                # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
+                return np.sum( [self.__getitem__(i).outer_product(other[i]) for i in range(self.dim)])
+            elif axes ==2:
+                raise NotImplementedError(
+                "Indexing with slices is not currently implemented. It is "
+                "not trivial but could be done.")
+
+
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
             if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
                 A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
-                if isinstance(A, (int, float)): 
+                if isinstance(A, (int, float)):
                     C = self.__class__(dim=A.dim, rank=A.rank)
                     for σcls in C.perm_classes:
                         C[σcls] = ufunc(A, B[σcls])
@@ -842,36 +906,36 @@ class SymmetricTensor(Serializable):
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
         elif method == "outer":
-            A, B = inputs 
+            A, B = inputs
             return self.outer_product(B, ufunc = ufunc, **kwargs)
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
-        
+
     def __add__(self, other):
         return np.add(self, other)
     def __mul__(self, other):
         return np.multiply(self, other)
-    def __sub__(self,other): 
+    def __sub__(self,other):
         C = other*(-1)
         return np.add(self, C)
-    
+
     ## Public attributes & API ##
-    
+
     @property
     def perm_classes(self) -> List[str]:
         """
         Return all permutation class strings as a list.
         """
         return [self.get_class_label(σcls) for σcls in self._data.keys()]
-    
+
     @property
     def dtype(self) -> np.dtype:
         return np.result_type(*self._data.values())
-    
+
     @property
     def shape(self) -> Tuple[int,...]:
         return (self.dim,)*self.rank
-    
+
     @property
     def size(self) -> int:
         """
@@ -880,34 +944,34 @@ class SymmetricTensor(Serializable):
         are stored as scalars.
         """
         return sum(self._class_sizes.values())
-    
+
     def todense(self) -> Array:
         A = np.empty(self.shape, self.dtype)
         for idx, value in zip(self.index_iter(), self.indep_iter()):
             A[idx] = value
         return A
-    
+
     @classmethod
     def is_subσcls(self, σcls: str, subσcls: str) -> bool:  # Could be considered public
         '''
-        Check if subσcls is a sub permutation class of σcls. 
-        Both σcls and subσcls are strings where the entries denote the number of repetitions of a single index. 
-        For example 'iiij' is the permutation class of indices of a fourth order tensor where all indices are equal but one. 
-        Then 'iij' is a subσcls of σcls, 
+        Check if subσcls is a sub permutation class of σcls.
+        Both σcls and subσcls are strings where the entries denote the number of repetitions of a single index.
+        For example 'iiij' is the permutation class of indices of a fourth order tensor where all indices are equal but one.
+        Then 'iij' is a subσcls of σcls,
         but 'ijk' is not a subσcls of 'iiij', because for 'ijk', there have to be at least three different indices.
         '''
         return self._is_subσcls(self.get_class_tuple(σcls),
                            self.get_class_tuple(subσcls))
-    
+
     ## Iterators ##
-            
+
     @property
     def flat(self):
         """
         Return an iterator which yields each independent component *once*.
         Can be zipped with `flat_index` to get one (of the generally
         multiple) associated indices in the symmetric tensor.
-        
+
         .. Note:: At present, in contrast to NumPy's `flat`, it is not possible
            to set values with this iterator (since it is an iterator rather
            than a view).
@@ -920,14 +984,14 @@ class SymmetricTensor(Serializable):
             else:
                 for vi in v:
                     yield from itertools.repeat(vi, mult)
-                
+
     @property
     def flat_index(self):
         """
         Return an iterator which yields the index of each tensor component
         exactly once.
         Can be zipped with `flat` to also get the component values.
-        
+
         .. Note:: For looping over an entire dense tensor, the advanced index
            returned by `index_iter` should in general be more efficient than
            this one.
@@ -936,11 +1000,11 @@ class SymmetricTensor(Serializable):
             for index in index_iter(repeats, self.dim):
                 # TODO? Is there a better way than `set` to keep only unique permutations ?
                 yield from sorted(set(itertools.permutations(index)))
-    
+
     def __iter__(self):
         raise NotImplementedError("Standard iteration, as with a dense tensor, "
                                   "would require extra work but could be supported.")
-    
+
     def indep_iter(self, class_label: str=None) -> Generator:
         """
         Return a generator which yields values for the independent components
@@ -950,13 +1014,13 @@ class SymmetricTensor(Serializable):
         have the same value) are returned multiple times, as many as the size
         of that class. The output thus does not depend on whether values
         are stored as scalars or arrays.
-        
+
         Parameters
         ---------
         class_label: (Optional)
            Permutation class over which to iterate. If no class is specified,
            iterate over all classes.
-           
+
         .. Note:: Can be combined with `index_iter`, `index_class_iter` and
            `mult_iter`.
         """
@@ -975,7 +1039,7 @@ class SymmetricTensor(Serializable):
                 yield from itertools.repeat(v, size)
             else:
                 yield from v
-    
+
     def index_iter(self, class_label: str=None
                   ) -> Generator[Tuple[List[int],...]]:
         """
@@ -984,13 +1048,13 @@ class SymmetricTensor(Serializable):
         Equivalent permutations are returned together, as a single “advanced
         index” tuple, such that they can be used to simultaneously get or set values
         in a dense tensor.
-        
+
         Parameters
         ---------
         class_label: (Optional)
            Permutation class over which to iterate. If no class is specified,
            iterate over all classes.
-        
+
         .. Note:: To construct the advanced index, permuted indices are
            collated. So for example, the index `(0,1,2)` has six permutations,
            which are collated as
@@ -1008,20 +1072,20 @@ class SymmetricTensor(Serializable):
                 # NB: dict.fromkeys is used to keep only unique permutations
                 yield tuple(list(σindex) for σindex in  # Convert from tuple to list to trigger advanced indexing
                             zip(*dict.fromkeys(itertools.permutations(index)).keys()))
-    
+
     def index_class_iter(self, class_label: str=None
                   ) -> Generator[Tuple[int]]:
         """
         Return a generator which yields one representative for each index class
-        *I* in the permutation class given by `class_label`, in the order in 
+        *I* in the permutation class given by `class_label`, in the order in
         which they are stored as a flat vector.
-        
+
         Parameters
         ---------
         class_label: (Optional)
            Permutation class over which to iterate. If no class is specified,
            iterate over all classes.
-           
+
         .. Note:: In contrast to `index_iter`, this does not return all
            equivalent permutations of a index. In general, `index_class_iter`
            is more suited to operations involving only symmetric tensors,
@@ -1035,7 +1099,7 @@ class SymmetricTensor(Serializable):
             self._check_class_label(class_label)
             repeats = self.get_class_tuple(class_label)
             yield from index_iter(repeats, self.dim)
-            
+
     def mult_iter(self):
         """
         Return the multiplicity of each class.
@@ -1049,9 +1113,9 @@ class SymmetricTensor(Serializable):
             γ = self.get_class_multiplicity(σcls)
             s = self.get_class_size(σcls)
             yield from itertools.repeat(γ, s)
-    
+
     ## Private utilities
-        
+
     def _check_class_label(self, class_label: str) -> None:
         """
         Raises `ValueError` if the `class_label` has a different length as
@@ -1065,13 +1129,12 @@ class SymmetricTensor(Serializable):
     @staticmethod
     def _is_subσcls(σcls: Tuple[int], subσcls: Tuple[int]) -> bool:
         '''
-        Check if subσcls is a sub permutation class of σcls. 
-        Both σcls and subσcls are tuples where the entries denote the number of repetitions of a single index. 
-        For example σcls = (3,1) corresponds to ther σcls string 'iiij'. Then (2,1) <-> 'iij' is a subσcls of σcls, 
+        Check if subσcls is a sub permutation class of σcls.
+        Both σcls and subσcls are tuples where the entries denote the number of repetitions of a single index.
+        For example σcls = (3,1) corresponds to ther σcls string 'iiij'. Then (2,1) <-> 'iij' is a subσcls of σcls,
         but (1,1,1) <-> 'ijk' is not a subσcls of 'iiij' <-> (3,1).
         '''
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
-
 
 # %%
 
@@ -1108,7 +1171,7 @@ if __name__ == "__main__":
     fig.opts(hv.opts.HLine(color='grey', line_dash='dashed', line_width=2, alpha=0.5),
              hv.opts.Curve(width=500, logy=True, logx=True),
              hv.opts.Overlay(legend_position='right'))
-    display(fig)
+    #display(fig)
 
 # %% [markdown]
 # ## Tests
@@ -1127,7 +1190,7 @@ if __name__ == "__main__":
 #
 # The tests below confirm that the permutation classes form a partition of tensor indices: the sum of their class sizes equals the total number of independent components in a symmetric tensor, which is given by
 # $$\binom{d + r - 1}{r}\,.$$
-# This is a well-known expression; it can be found for example [here](http://www.physics.mcgill.ca/~yangob/symmetric%20tensor.pdf).  
+# This is a well-known expression; it can be found for example [here](http://www.physics.mcgill.ca/~yangob/symmetric%20tensor.pdf).
 # This test gives us good confidence that the methods `perm_classes` and `get_class_size` are correctly implemented.
 
     # %%
@@ -1200,7 +1263,7 @@ if __name__ == "__main__":
     # %%
     A = SymmetricTensor(3, 5)
     assert A['iij'] is A._data[(2,1)]
-    
+
     b = 0
     sizes = [A.get_class_size(σcls) for σcls in A.perm_classes]
     for σcls, size in zip(A.perm_classes, sizes):
@@ -1210,19 +1273,36 @@ if __name__ == "__main__":
         else:
             A[σcls] = np.arange(b, b+size)
         b += size
-    
+
     assert A[1, 1, 1] == A['iii']
     assert A[0, 0, 3] == A['iij'][2]   # Preceded by: (0,0,1),(0,0,2)
     assert A[2, 2, 3] == A['iij'][10]  # Preceded by: (0,0,1–4),(1,1,0),(1,1,2–4),(2,2,0–1)
     assert A[1, 2, 3] == A['ijk'][6]   # Preceded by: (0,1,2—4),(0,2,3–4),(0,3,4)
-    
 
 
-    # %%
-    #subtensor generation
+
+# %%
+if __name__ == "main":
+    #subtensor generation with 1 index
     for A in test_tensors():
         for i in range(A.dim):
             assert (A[i].todense() == A.todense()[i]).any()
+    #subtensor generation with multiple indices
+    dim = 4
+    rank = 4
+    #test is_equal
+    diagonal = np.random.rand(dim) 
+    odiag1 = np.random.rand()
+    odiag2 = np.random.rand() 
+    A = SymmetricTensor(rank = rank, dim =dim)
+    A['iiii'] = diagonal
+    A['iiij'] = odiag1
+    A['iijj'] = odiag2
+    
+    assert (A[0,1,:,:].todense() == A.todense()[0,1,::]).any()
+    assert (A[0,1,:,:]).is_equal(A[1,0,:,:])
+    assert (A[0,1,1,:]).is_equal(A[1,1,0,:])
+    assert all([A[0,0,0,:][i] == A[0,0,0,i] for i in range(dim)])
 
 
     # %%
@@ -1300,10 +1380,10 @@ if __name__ == "__main__":
 # [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCLigZ1cIl1cbiAgXG4gICAgc3R5bGUgTiBmaWxsOm5vbmUsIHN0cm9rZTpub25lIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifSwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)](https://mermaid-js.github.io/mermaid-live-editor/edit##eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCJcdOKBnVwiXVxuICBcbiAgICBzdHlsZSBOIGZpbGw6bm9uZSwgc3Ryb2tlOm5vbmUiLCJtZXJtYWlkIjoie1xuICBcInRoZW1lXCI6IFwiZGVmYXVsdFwiXG59IiwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)
 
 # %% [markdown]
-# ## Arithmetic 
+# ## Arithmetic
 
 # %%
-if __name__ == "__main__": 
+if __name__ == "__main__":
     rank = 4
     dim = 2
     #test addition
@@ -1326,27 +1406,27 @@ if __name__ == "__main__":
     #test log, exp
     for σcls in test_tensor_8.perm_classes:
             assert test_tensor_8[σcls] == test_tensor_2[σcls]
-            
-    
+
+
     #outer product
     def transpose(A, axes):
         return np.transpose(A, axes)
     from itertools import permutations
-    
+
     def symmetrize(dense_tensor):
         D = dense_tensor.ndim
         n = np.prod(range(1,D+1))  # Factorial – number of permutations
         return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
-    
+
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-    
+
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
     assert (test_tensor_8.todense() == symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).any()
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
     assert (test_tensor_9.todense() == symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d))).any()
-    
+
     test_tensor_10 = SymmetricTensor(rank=1, dim=2)
     test_tensor_10['i'] = [1,0]
     test_tensor_11 = SymmetricTensor(rank=1, dim=2)
@@ -1355,4 +1435,31 @@ if __name__ == "__main__":
     assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
     assert test_tensor_12['ij'] == 0.5
 
+
+
+# %% [markdown]
+# ## Copying and Equality
+
+# %%
+if __name__ == "__main__":
+    rank = 4
+    dim = 10
+    #test is_equal
+    diagonal = np.random.rand(dim) 
+    odiag1 = np.random.rand()
+    odiag2 = np.random.rand() 
+    A = SymmetricTensor(rank = rank, dim =dim)
+    B = SymmetricTensor(rank = rank, dim =dim)
+    A['iiii'] = diagonal
+    B['iiii'] = diagonal
+    A['iiij'] = odiag1
+    B['iiij'] = odiag1
+    A['iijj'] = odiag2
+    B['iijj'] = odiag2
+    assert A.is_equal(B)
+    
+    #test copying
+    C = A.copy()
+    assert C.is_equal(A)
+    
     
