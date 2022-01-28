@@ -606,17 +606,23 @@ class SymmetricTensor(Serializable):
         '''
         return SymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
     
-    def is_equal(self, other): 
+    def is_equal(self, other, prec =None): 
         '''
         Check current SymmetricTensor is equal to other. 
         '''
         if not isinstance(other, SymmetricTensor): 
             raise TypeError("Both tensors must be instances of SymmetricTensor for comparison")
         equal = True
-        for idx in self.index_class_iter(): 
-            if not self[idx] == other[idx]:
-                equal = False
-                break
+        if prec is None: 
+            for idx in self.index_class_iter(): 
+                if not self[idx] == other[idx]:
+                    equal = False
+                    break
+        else:
+            for idx in self.index_class_iter(): 
+                if not (abs(self[idx]- other[idx])<prec).any():
+                    equal = False
+                    break
         return equal
             
     
@@ -741,12 +747,6 @@ class SymmetricTensor(Serializable):
 
         .. Note:: slices are not yet supported.
         """
-        '''
-        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
-        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
-        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
-        HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE HERE 
-        '''
         if isinstance(key, str):
             repeats = _get_perm_class(tuple(key))
             return self._data[repeats]
@@ -852,15 +852,15 @@ class SymmetricTensor(Serializable):
         if self.dim != other.dim:
             raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
         else:
-            C = self.__class__(dim=self.dim, rank=self.rank+other.rank)
+            C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
             for I in C.index_class_iter():
                 list1, list2 = partition_list_into_two(I, self.rank, other.rank)
-                C[I] = np.mean( [np.multiply(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] )
+                C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
             return C
 
     def tensordot(self,other, axes=2):
         '''
-        like numpy.tensordot, but outputs are all symmetrized if it is an outer product.
+        like numpy.tensordot, but outputs are all symmetrized.
         '''
         if not isinstance(other, SymmetricTensor):
             raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
@@ -873,9 +873,27 @@ class SymmetricTensor(Serializable):
                 # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
                 return np.sum( [self.__getitem__(i).outer_product(other[i]) for i in range(self.dim)])
             elif axes ==2:
-                raise NotImplementedError(
-                "Indexing with slices is not currently implemented. It is "
-                "not trivial but could be done.")
+                if self.rank < 2 or other.rank <2: 
+                    raise ValueError("Both tensors must have rank >=2")
+                get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
+                C = np.sum([np.multiply.outer(self[get_slice_index(i,j,self.rank)],
+                                     other[get_slice_index(i,j,other.rank)]) for i in range(self.dim) for j in range(other.dim)])
+                return C
+        elif isinstance(axes, tuple): 
+            axes1 ,axes2 = axes
+            if isinstance(axes1, tuple): 
+                assert isinstance(axes2, tuple), 'axes must be either int, tuple of length 2, or tuple of tuples'
+                assert len(axes1) == len(axes2), '# dimensions to sum over must match'
+                rank_deduct = len(axes1)
+                get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-rank_deduct)
+                C = np.sum([np.multiply.outer(self[get_slice_index(idx,self.rank)],
+                                     other[get_slice_index(idx,other.rank)]) for idx in itertools.product(range(self.dim),repeat = rank_deduct)])
+                return C
+            elif isinstance(axes1,int): 
+                assert isinstance(axes2,int),  'axes must be either int, tuple of length 2, or tuple of tuples'
+                return self.tensordot(other, axes =1)
+        else:        
+            raise NotImplementedError("Tensordot with more axes than two is currently not implemented.")
 
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
@@ -1388,26 +1406,34 @@ if __name__ == "__main__":
     dim = 2
     #test addition
     test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
-    test_tensor_1['iiii'] = 1.0
+    test_tensor_1['iiii'] = np.random.rand(2)
     test_tensor_2 = np.add(test_tensor_1,1.0)
     test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
     for σcls in test_tensor_3.perm_classes:
                 test_tensor_3[σcls] = 1.0
     test_tensor_4 =  test_tensor_2 - test_tensor_3
-    for σcls in test_tensor_3.perm_classes:
-            assert test_tensor_4[σcls] == test_tensor_1[σcls]
+    print(test_tensor_1, test_tensor_4)
+    assert test_tensor_4.is_equal(test_tensor_1, prec =1e-10)
     test_tensor_5 = np.multiply(test_tensor_2, -1)
     test_tensor_6 = np.multiply(test_tensor_5, -1)
     #test multiplication
-    for σcls in test_tensor_6.perm_classes:
-            assert test_tensor_6[σcls] == test_tensor_2[σcls]
+    assert test_tensor_6.is_equal(test_tensor_2, prec =1e-10)
     test_tensor_7 = np.exp(test_tensor_2)
     test_tensor_8 = np.log(test_tensor_7)
     #test log, exp
-    for σcls in test_tensor_8.perm_classes:
-            assert test_tensor_8[σcls] == test_tensor_2[σcls]
+    assert test_tensor_8.is_equal(test_tensor_2, prec =1e-10)
 
 
+
+    
+
+
+
+# %% [markdown]
+# ### Tensordot
+
+# %%
+if __name__ == "__main__": 
     #outer product
     def transpose(A, axes):
         return np.transpose(A, axes)
@@ -1421,11 +1447,11 @@ if __name__ == "__main__":
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-
+    prec =1e-10
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    assert (test_tensor_8.todense() == symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).any()
+    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).any()
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
-    assert (test_tensor_9.todense() == symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d))).any()
+    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).any()
 
     test_tensor_10 = SymmetricTensor(rank=1, dim=2)
     test_tensor_10['i'] = [1,0]
@@ -1434,7 +1460,54 @@ if __name__ == "__main__":
     test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
     assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
     assert test_tensor_12['ij'] == 0.5
+    
 
+
+    # %%
+    #outer product with tensordot
+    def test_tensordot(tensor_1, tensor_2, prec =1e-10): 
+        test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
+        assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
+
+        #Contract over first and last indices: 
+        test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
+        dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
+                                                  tensor_2.todense(),
+                                                  axes =1 ))
+        assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
+        test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
+        assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
+
+        #Contract over two first and last indices: 
+        test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
+        dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
+                                                  tensor_2.todense(),
+                                                  axes =2 ))
+        if isinstance(test_tensor_15, SymmetricTensor):
+            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).any()
+        else: 
+            assert test_tensor_15 == dense_tensor_15
+        
+        if tensor_1.rank >2 and tensor_2.rank >2: 
+            test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
+            dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
+                                                  tensor_2.todense(),
+                                                  axes =((0,1,2),(0,1,2)) ))
+            dense_tensor_161 = symmetrize(np.tensordot(tensor_1.todense(),
+                                                  tensor_2.todense(),
+                                                  axes =((0,1,2),(2,1,0)) ))
+            dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
+                                                  tensor_2.todense(),
+                                                  axes =((0,1,2),(2,0,1)) ))
+            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).any()
+            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).any()
+            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).any()
+        
+    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]: 
+        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]: 
+            if A.rank +B.rank <= 8: #otherwise we can't convert to dense
+                test_tensordot(A,B)
+   
 
 
 # %% [markdown]
@@ -1461,5 +1534,5 @@ if __name__ == "__main__":
     #test copying
     C = A.copy()
     assert C.is_equal(A)
-    
-    
+
+
