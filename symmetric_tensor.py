@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 import statGLOW
 from statGLOW.smttask_ml.scityping import Array, Serializable
+from statGLOW.stats.einsum_tools import einsum_path, einsum
 
 # %%
 if __name__ == "__main__":
@@ -923,11 +924,26 @@ class SymmetricTensor(Serializable):
                 for σcls in C.perm_classes:
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
+            elif ufunc in {np.asanyarray}: #to make compatible with einsum
+                A, = inputs
+                return A
         elif method == "outer":
             A, B = inputs
-            return self.outer_product(B, ufunc = ufunc, **kwargs)
+            return A.outer_product(B, ufunc = ufunc, **kwargs)
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
+        
+    def __array_function__(self, func, types, args, kwargs):
+        if func not in {np.tensordot,}:
+            return NotImplemented
+        else: 
+            A, B, axes = args
+            return A.tensordot(B, axes=axes)
+            
+        # Note: this allows subclasses that don't override
+        # __array_function__ to handle SymmetricTensor objects
+        if not all(issubclass(t, MyArray) for t in types):
+            return NotImplemented
 
     def __add__(self, other):
         return np.add(self, other)
@@ -1153,10 +1169,55 @@ class SymmetricTensor(Serializable):
         but (1,1,1) <-> 'ijk' is not a subσcls of 'iiij' <-> (3,1).
         '''
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
+    
+    def split_legs(self, out_index, num_splits, split_into = 2): 
+        '''
+        For SimpleFLOW activation layers, we want to sometimes create new tensors according to specific diagrammatic
+        rules. We here create Tensors which correspond to splitting num_splits legs of our tensor into split_into new legs. 
+        each.'''
+        
+        # when we split one leg into split_into new legs, we get split_into-1 additional legs out.
+        C = SymmetricTensor(dim = self.dim, rank = self.rank + num_splits*(split_into-1)) 
+        
+        D = SymmetricTensor(dim = self.dim, rank = num_splits)
+        
+        split_σclss = [σcls*split_into for σcls in D.perm_classes]
+        for σcls in C.perm_classes:
+            C[σcls] = [ self[σcls_1] for σcls_1 in self.perm_classes if C.is_subσcls(σcls,σcls_1)
+                       
+            
+            
+            
+            ]
+            
+            
+        
+        
+    
+    
 
 # %%
+if __name__ == "__main__":
+    rank = 4
+    dim = 2
+    #test addition
+    test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
+    test_tensor_1['iiii'] = np.random.rand(2)
+    test_tensor_2 = np.add(test_tensor_1,1.0)
+    test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
+    for tensor in [ test_tensor_1, test_tensor_2, test_tensor_3]:
+        print( tensor.shape )
+    operands = ('ijkk, kkno,nkqr->ijoqr', test_tensor_1, test_tensor_2, test_tensor_3)
+    #inputs_parsed = _parse_einsum_input(operands)
+    path = einsum_path('ijkl, kmno,nkqr->ijkmoqr', test_tensor_1, test_tensor_2, test_tensor_3)
+    #new_tensor = einsum('ijkl, kmno,nkqr->ijkmoqr', test_tensor_1, test_tensor_2, test_tensor_3)
+    
+    
 
-# %%
+
+    # %%
+    path[1]
+    
 
 # %% [markdown]
 # ## Memory footprint
