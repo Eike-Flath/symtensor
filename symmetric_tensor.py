@@ -28,8 +28,7 @@ from pydantic import BaseModel
 
 from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 import statGLOW
-from statGLOW.smttask_ml.scityping import Array, Serializable
-from statGLOW.stats.einsum_tools import einsum_path, einsum
+from statGLOW.smttask_ml.scityping import Serializable, Array, DType
 
 # %%
 if __name__ == "__main__":
@@ -545,6 +544,7 @@ class SymmetricTensor(Serializable):
 
     rank                 : int
     dim                  : int
+    _dtype                : DType
     _data                : Dict[Tuple[int], Union[float, Array[float,1]]]
     _class_sizes         : Dict[Tuple[int], int]
     _class_multiplicities: Dict[Tuple[int], int]
@@ -552,16 +552,26 @@ class SymmetricTensor(Serializable):
         # string to represent classes, since it is more useful for calculations
 
     def __init__(self, rank: int, dim: int,
-                 data: Optional[Union[Tuple[int,...], str], Array[float,1]]=None):
+                 data: Optional[Dict[Union[Tuple[int,...], str],
+                                     Array[float,1]]]=None,
+                 dtype: Union[None,str,DType]=None):
         self.rank = rank
         self.dim = dim
-        self._data = {tuple(repeats): 0 for repeats in _indexcounts(rank, rank, rank)}
+        if dtype is None:
+            dtype = np.dtype('float64')
+        self._dtype = dtype
+        self._data = {tuple(repeats): dtype.type(0)
+                      for repeats in _indexcounts(rank, rank, rank)}
         self._class_sizes = {tuple(repeats): _get_perm_class_size(repeats, self.dim)
                              for repeats in self._data}
         self._class_multiplicities = {tuple(repeats): multinom(self.rank, repeats)
                                       for repeats in self._data}
         if data:
-            if not isinstance(data, dict):
+            if isinstance(data, np.ndarray):
+                raise NotImplementedError("Casting plain arrays to SymmetricTensor "
+                                          "is not yet supported.")
+                # TODO: Check that the array is symmetric, then extract values.
+            elif not isinstance(data, dict):
                 raise TypeError("If provided, `data` must be a dictionary with "
                                 "the format {σ class: data vector}")
             # If `data` comes from serialized JSON; revert strings to tuples
@@ -585,7 +595,7 @@ class SymmetricTensor(Serializable):
                                      f"should have shape {(self._class_sizes[k],)}, "
                                      f"but the provided data has shape {v.shape}.")
             # Replace blank data with the provided data
-            self._data = data
+            self._data = {k: v.astype(dtype) for k, v in data.items()}
 
     ## Pydantic serialization ##
     class Data(BaseModel):
@@ -600,33 +610,33 @@ class SymmetricTensor(Serializable):
 
     ## Translation functions ##
     # Mostly used internally, but part of the public API
-    
-    def copy(self): 
+
+    def copy(self):
         '''
         Return a copy of the current tensor
         '''
         return SymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
-    
-    def is_equal(self, other, prec =None): 
+
+    def is_equal(self, other, prec =None):
         '''
-        Check current SymmetricTensor is equal to other. 
+        Check current SymmetricTensor is equal to other.
         '''
-        if not isinstance(other, SymmetricTensor): 
+        if not isinstance(other, SymmetricTensor):
             raise TypeError("Both tensors must be instances of SymmetricTensor for comparison")
         equal = True
-        if prec is None: 
-            for idx in self.index_class_iter(): 
+        if prec is None:
+            for idx in self.index_class_iter():
                 if not self[idx] == other[idx]:
                     equal = False
                     break
         else:
-            for idx in self.index_class_iter(): 
+            for idx in self.index_class_iter():
                 if not (abs(self[idx]- other[idx])<prec).any():
                     equal = False
                     break
         return equal
-            
-    
+
+
     @classmethod
     def get_perm_class(cls, key: Tuple[int]) -> str:
         """
@@ -751,26 +761,26 @@ class SymmetricTensor(Serializable):
         if isinstance(key, str):
             repeats = _get_perm_class(tuple(key))
             return self._data[repeats]
-        
+
         elif isinstance(key, tuple):
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
                 indices_fixed = [i for i in key if isinstance(i,int)]
                 slices = [i for i in key if isinstance(i,slice)]
                 #Check for subslicing
                 subslicing = False
-                for s in slices: 
-                    if any([x is not None for x in [s.start,s.step,s.stop]]): 
+                for s in slices:
+                    if any([x is not None for x in [s.start,s.step,s.stop]]):
                         subslicing = True
                         raise NotImplementedError("Indexing with subslicing (for example SymmetricTensor[1:3, 0,0]) is not"
                                                   " currently implemented. Only slices of the type"
                                                   "[i_1,...,i_n,:,...,:] with i_1,..., i_n all integers are allowed.")
-                
-                if not subslicing: 
+
+                if not subslicing:
                     C = self.copy()
-                    for i in indices_fixed: 
+                    for i in indices_fixed:
                         C = C[i]
                     return C
-                    
+
             else:
                 σcls, pos = self._convert_dense_index(key)
                 vals = self._data[σcls]
@@ -845,57 +855,18 @@ class SymmetricTensor(Serializable):
             else:
                 self._data[σcls][pos] = value
 
-    def outer_product(self,other, ufunc=np.multiply):
-        '''
-        Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
-        The result generated here is the symmetrized version of the outer product.
-        '''
-        if self.dim != other.dim:
-            raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
-        else:
-            C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
-            for I in C.index_class_iter():
-                list1, list2 = partition_list_into_two(I, self.rank, other.rank)
-                C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
-            return C
+    ## Numpy dispatch protocols – see NEP13, NEP18 ##
 
-    def tensordot(self,other, axes=2):
-        '''
-        like numpy.tensordot, but outputs are all symmetrized.
-        '''
-        if not isinstance(other, SymmetricTensor):
-            raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
-        if self.dim != other.dim:
-            raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
-        if isinstance(axes,int):
-            if axes ==0:
-                return self.outer_product(other)
-            elif axes ==1:
-                # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
-                return np.sum( [self.__getitem__(i).outer_product(other[i]) for i in range(self.dim)])
-            elif axes ==2:
-                if self.rank < 2 or other.rank <2: 
-                    raise ValueError("Both tensors must have rank >=2")
-                get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
-                C = np.sum([np.multiply.outer(self[get_slice_index(i,j,self.rank)],
-                                     other[get_slice_index(i,j,other.rank)]) for i in range(self.dim) for j in range(other.dim)])
-                return C
-        elif isinstance(axes, tuple): 
-            axes1 ,axes2 = axes
-            if isinstance(axes1, tuple): 
-                assert isinstance(axes2, tuple), 'axes must be either int, tuple of length 2, or tuple of tuples'
-                assert len(axes1) == len(axes2), '# dimensions to sum over must match'
-                rank_deduct = len(axes1)
-                get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-rank_deduct)
-                C = np.sum([np.multiply.outer(self[get_slice_index(idx,self.rank)],
-                                     other[get_slice_index(idx,other.rank)]) for idx in itertools.product(range(self.dim),repeat = rank_deduct)])
-                return C
-            elif isinstance(axes1,int): 
-                assert isinstance(axes2,int),  'axes must be either int, tuple of length 2, or tuple of tuples'
-                return self.tensordot(other, axes =1)
-        else:        
-            raise NotImplementedError("Tensordot with more axes than two is currently not implemented.")
-
+    def __array_function__(self, func, types, args, kwargs):
+        # See "Implementation of the __array_function__ protocol" below
+        # for construction of HANDLED_FUNCTIONS
+        if func not in HANDLED_FUNCTIONS:
+            return NotImplemented
+        # NB: In contrast to the example in NEP18, we don't require
+        #     arguments to be SymmetricTensors – ndarray is also allowed.
+        if not all(issubclass(t, (SymmetricTensor, np.ndarray)) for t in types):
+            return NotImplemented
+        return HANDLED_FUNCTIONS[func](*args, **kwargs)
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
@@ -924,26 +895,13 @@ class SymmetricTensor(Serializable):
                 for σcls in C.perm_classes:
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
-            elif ufunc in {np.asanyarray}: #to make compatible with einsum
-                A, = inputs
-                return A
         elif method == "outer":
             A, B = inputs
-            return A.outer_product(B, ufunc = ufunc, **kwargs)
+            return self.outer_product(B, ufunc = ufunc, **kwargs)
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
-        
-    def __array_function__(self, func, types, args, kwargs):
-        if func not in {np.tensordot,}:
-            return NotImplemented
-        else: 
-            A, B, axes = args
-            return A.tensordot(B, axes=axes)
-            
-        # Note: this allows subclasses that don't override
-        # __array_function__ to handle SymmetricTensor objects
-        if not all(issubclass(t, MyArray) for t in types):
-            return NotImplemented
+
+    # Implementations of operations
 
     def __add__(self, other):
         return np.add(self, other)
@@ -952,6 +910,96 @@ class SymmetricTensor(Serializable):
     def __sub__(self,other):
         C = other*(-1)
         return np.add(self, C)
+
+    def outer_product(self, other, ufunc=np.multiply):  # SYMMETRIC ALGEBRA
+        """
+        Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
+        The result generated here is the symmetrized version of the outer product.
+        """
+        if self.dim != other.dim:
+            raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
+        else:
+            C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
+            for I in C.index_class_iter():
+                list1, list2 = partition_list_into_two(I, self.rank, other.rank)
+                C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
+            return C
+
+    def tensordot(self, other, axes=2):
+        """
+        like numpy.tensordot, but outputs are all symmetrized.
+        """
+        if not isinstance(other, SymmetricTensor):
+            raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
+        if self.dim != other.dim:
+            raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
+        if isinstance(axes,int):
+            if axes ==0:
+                return self.outer_product(other)
+            elif axes ==1:
+                # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
+                return np.sum( [self.__getitem__(i).outer_product(other[i]) for i in range(self.dim)])
+            elif axes ==2:
+                if self.rank < 2 or other.rank <2:
+                    raise ValueError("Both tensors must have rank >=2")
+                get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
+                C = np.sum([np.multiply.outer(self[get_slice_index(i,j,self.rank)],
+                                     other[get_slice_index(i,j,other.rank)]) for i in range(self.dim) for j in range(other.dim)])
+                return C
+        elif isinstance(axes, tuple):
+            axes1 ,axes2 = axes
+            if isinstance(axes1, tuple):
+                assert isinstance(axes2, tuple), 'axes must be either int, tuple of length 2, or tuple of tuples'
+                assert len(axes1) == len(axes2), '# dimensions to sum over must match'
+                rank_deduct = len(axes1)
+                get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-rank_deduct)
+                C = np.sum([np.multiply.outer(self[get_slice_index(idx,self.rank)],
+                                     other[get_slice_index(idx,other.rank)]) for idx in itertools.product(range(self.dim),repeat = rank_deduct)])
+                return C
+            elif isinstance(axes1,int):
+                assert isinstance(axes2,int),  'axes must be either int, tuple of length 2, or tuple of tuples'
+                return self.tensordot(other, axes =1)
+        else:
+            raise NotImplementedError("Tensordot with more axes than two is currently not implemented.")
+
+    ## Array creation, copy, etc. ##
+
+    def __array__(self):
+        warn(f"Converting a SymmetricTensor to a dense NumPy array of shape {self.shape}.")
+        return self.todense()
+
+    def asarray(self, dtype=None, order=None):
+        new_data = {k: v.asarray(dtype, order) if isinstance(v, np.ndarray)
+                       else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
+                       else v.astype(dtype)
+                    for k, v in self._data.items()}
+        if all(self._data[k] is new_data[k] for k in new_data):
+            # We received copy=False & all sub arrays were successfully not copied
+            return self
+        else:
+            return SymmetricTensor(self.rank, self.dim, new_data)
+
+    def asanyarray(self, dtype=None, order=None):
+        new_data = {k: v.asanyarray(dtype, order) if isinstance(v, np.ndarray)
+                       else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
+                       else v.astype(dtype)
+                    for k, v in self._data.items()}
+        if all(self._data[k] is new_data[k] for k in new_data):
+            # We received copy=False & all sub arrays were successfully not copied
+            return self
+        else:
+            return SymmetricTensor(self.rank, self.dim, new_data)
+
+    def astype(self, dtype, order, casting, subok=True, copy=True):
+        new_data = {k: v.astype(dtype, order, casting, subok, copy) if isinstance(v, np.ndarray)
+                       else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
+                       else v.astype(dtype)
+                    for k, v in self._data.items()}
+        if all(self._data[k] is new_data[k] for k in new_data):
+            # We received copy=False & all sub arrays were successfully not copied
+            return self
+        else:
+            return SymmetricTensor(self.rank, self.dim, new_data)
 
     ## Public attributes & API ##
 
@@ -964,7 +1012,7 @@ class SymmetricTensor(Serializable):
 
     @property
     def dtype(self) -> np.dtype:
-        return np.result_type(*self._data.values())
+        return self._dtype
 
     @property
     def shape(self) -> Tuple[int,...]:
@@ -1169,55 +1217,182 @@ class SymmetricTensor(Serializable):
         but (1,1,1) <-> 'ijk' is not a subσcls of 'iiij' <-> (3,1).
         '''
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
-    
-    def split_legs(self, out_index, num_splits, split_into = 2): 
+
+    def split_legs(self, out_index, num_splits, split_into = 2):
         '''
         For SimpleFLOW activation layers, we want to sometimes create new tensors according to specific diagrammatic
-        rules. We here create Tensors which correspond to splitting num_splits legs of our tensor into split_into new legs. 
+        rules. We here create Tensors which correspond to splitting num_splits legs of our tensor into split_into new legs.
         each.'''
-        
+
         # when we split one leg into split_into new legs, we get split_into-1 additional legs out.
-        C = SymmetricTensor(dim = self.dim, rank = self.rank + num_splits*(split_into-1)) 
-        
+        C = SymmetricTensor(dim = self.dim, rank = self.rank + num_splits*(split_into-1))
+
         D = SymmetricTensor(dim = self.dim, rank = num_splits)
-        
+
         split_σclss = [σcls*split_into for σcls in D.perm_classes]
         for σcls in C.perm_classes:
             C[σcls] = [ self[σcls_1] for σcls_1 in self.perm_classes if C.is_subσcls(σcls,σcls_1)
-                       
-            
-            
-            
+
+
+
+
             ]
-            
-            
-        
-        
-    
-    
+
+
+
+
+
+
+
+# %% [markdown]
+# ### Implementation of the `__array_function__` protocol
+#
+# Support for *non*-universal functions should be added here, following the pattern provided in [NEP 18](https://numpy.org/neps/nep-0018-array-function-protocol.html#example-for-a-project-implementing-the-numpy-api).
+# Universal functions (`np.add`, `np.exp`, etc.) [should use](https://numpy.org/neps/nep-0018-array-function-protocol.html#specialized-protocols) the more specialized `__array_ufunc__` protocol defined in [NEP 13](https://numpy.org/neps/nep-0013-ufunc-overrides.html).
+#
+# Additional references/remarks:
+# - There has been a lot of discussion regarding dispatching mechanisms for NumPy duck arrays – see [NEP 18](https://numpy.org/neps/nep-0018-array-function-protocol.html), [NEP 22](https://numpy.org/neps/nep-0022-ndarray-duck-typing-overview.html), [NEP 30](https://numpy.org/neps/nep-0030-duck-array-protocol.html), [NEP 31](https://numpy.org/neps/nep-0031-uarray.html), [NEP 35](https://numpy.org/neps/nep-0035-array-creation-dispatch-with-array-function.html), [NEP 47](https://numpy.org/neps/nep-0047-array-api-standard.html). Of these, only NEP 18 and NEP 35 have actually been adopted; NEP 47 seems to be where this will go in the future, but it's likely to be a few years still before this becomes implemented.
+# - `tensordot` is often used as a motivating example in these cases, so whenever this matures, it likely will address the use cases we have here.
+# - There is already an [open issue](https://github.com/numpy/numpy/issues/11506) for supporting `einsum_path` with non-NumPy arrays on NumPy's GitHub.
+#
+# **Implemented array functions**
+#
+# Implementation allows the standard numpy functions to work as expected, e.g. `np.tensordot(A, B)` where `A`, `B` are `SymmetricTensors` will work.
+#
+# - `asarray()`
+# - `asanyarray()`
+# - `tensordot()`
+# - `einsum_path()`
+# - `einsum()` [**TODO**]
 
 # %%
-if __name__ == "__main__":
-    rank = 4
-    dim = 2
-    #test addition
-    test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
-    test_tensor_1['iiii'] = np.random.rand(2)
-    test_tensor_2 = np.add(test_tensor_1,1.0)
-    test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
-    for tensor in [ test_tensor_1, test_tensor_2, test_tensor_3]:
-        print( tensor.shape )
-    operands = ('ijkk, kkno,nkqr->ijoqr', test_tensor_1, test_tensor_2, test_tensor_3)
-    #inputs_parsed = _parse_einsum_input(operands)
-    path = einsum_path('ijkl, kmno,nkqr->ijkmoqr', test_tensor_1, test_tensor_2, test_tensor_3)
-    #new_tensor = einsum('ijkl, kmno,nkqr->ijkmoqr', test_tensor_1, test_tensor_2, test_tensor_3)
-    
-    
+HANDLED_FUNCTIONS = {}
+
+def implements(numpy_function):
+    """Register an __array_function__ implementation for SymmetricTensor objects."""
+    def decorator(func):
+        HANDLED_FUNCTIONS[numpy_function] = func
+        return func
+    return decorator
+
+@implements(np.asarray)
+def asarray(a, dtype=None, order=None):
+    return a.asarray(dtype, order=order)
+
+@implements(np.asanyarray)
+def asanyarray(a, dtype=None, order=None):
+    return a.asanyarray(dtype, order=order)
+
+@implements(np.tensordot)
+def tensordot(a, b, axes=2):
+    return a.tensordot(b, axes=2)
+
+@implements(np.einsum_path)
+def einsum_path(*operands, optimize='greedy', einsum_call=False):
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        return np.core.einsumfunc.einsum_path.__wrapped__(
+            *operands, optimize=optimize, einsum_call=einsum_call)
+
+# TODO
+#@implements(np.einsum)
+#def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
+#    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
+#    #     C code which requires true arrays
+#    ...
 
 
-    # %%
-    path[1]
-    
+# %% [markdown]
+# ### Bypassing coercion to ndarray
+#
+# (Note: the `make_array_like` context manager is not specific to `SymmetricTensor`, and could be moved to a *utils* module*.)
+#
+# A lot of the provided NumPy functions use `asarray` or `asanyarray` to ensure their inputs are array-like (and not, say, a list). Unfortunately this also coerces inputs into NumPy arrays, which we absolutely want to avoid with `SymmetricTensor`. The problem as that these functions are used for two different purposes:
+# - When it is required that arguments truly be NumPy arrays;
+# - When it is required that arguments be array-like, and implement parts of the NumPy array API (so-called “duck arrays”).
+# The current solution is to use the keyword `like` (see [NEP 35](https://numpy.org/neps/nep-0035-array-creation-dispatch-with-array-function.html)) when a duck array will suffice; this has the added benefit of being explicit about which duck array type is expected (since different types implement different subsets of the array API).
+#
+# This however doesn't address the use of `asarray` within NumPy functions, where it is mostly called without the `like` keyword. (Which makes sense – to use the keyword, the function would have to know the duck type desired by the user.) As a workaround, we provide below the `make_array_like` context manager: within the context, and only for the specified modules, the functions `asarray` and `asanyarray` are modified to inject a specified type as the default value for the `like` keyword. For example, within `np.einsum_path`, `asanyarray` is called on the array inputs. To ensure that this call returns a `SymmetricTensor` rather than an `ndarray`, we first determine the module in which this call is made (in this case, *np.core.einsumfunc*). Then
+#
+# ```python
+# A = SymmetricTensor(3,4)
+# with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#     np.einsum_path('iij', A)  # Does not cast to plain Array
+# ```
+#
+# Using this context manager is essentially making the statement:
+#
+# > I have looked at all the code that will be run within this context, and I am confident that in all instances, a duck array satisfies the requirements of code calling array coercion functions like `asarray`. In no instances can a duck array be returned where a true NumPy array is needed.
+#
+# For example, any code which ultimately calls NumPy's C API will require true NumPy arrays. This is partly why the example above uses `einsum_path` (which is a pure Python function) and not `einsum`, which internally calls the C function `c_einsum`.
+#
+# Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *statGLOW/stats/symmetric_tensor.py* for an example.
+
+# %%
+from collections.abc import Iterable
+from contextlib import contextmanager
+from numpy.core import numeric as _numeric
+_make_array_like_patched_modules = set()  # Used in case of nested contexts
+@contextmanager
+def make_array_like(like, modules=()):  # UTILS
+    """
+    Monkey patch NumPy so that the type of `like` is recognized as an array.
+    Within this context, and within `module`, the default signature of `asarray(x)`
+    and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
+
+    .. Note:: Like must be an *instance* (not a type), and must implement the
+       __array_function__ protocol. See NEP35 and NEP18.
+
+    .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
+       only when no better solution is available.
+    """
+    if isinstance(modules, Iterable):
+        modules = set(modules)
+    else:
+        modules = {modules}
+    #if any(mod is np for mod in modules):
+    #    raise ValueError("`make_array_like` doesn't support overriding "
+    #                     "methods in the base 'numpy' module.")
+    # Open context: Monkey-patch Numpy function
+    def asarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)):  # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    def asanyarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)): # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    new_funcs = {'asarray': asarray,
+                 'asanyarray': asanyarray}
+    old_funcs = {'asarray': _numeric.asarray,
+                 'asanyarray': _numeric.asanyarray}
+    # NB: Because most NumPy modules alias these functions when they use them,
+    #     it's not sufficient to redefine np.asarray in _numeric: we need to
+    #     replace the aliases in the modules.
+    #     (assumption: aliases use the same function name)
+    for mod in modules:
+        if mod in _make_array_like_patched_modules:
+            # Already patched by an outer context
+            modules.remove(mod)
+            continue
+        for nm, f in new_funcs.items():
+            if nm in mod.__dict__:
+                #import pdb; pdb.set_trace()
+                setattr(mod, nm, f)
+    # Return control to code inside context
+    try:
+        yield None
+    # Close context: Undo the monkey patching
+    except Exception:
+        raise
+    finally:
+        for mod in modules:
+            for nm in old_funcs:
+                # Iterating over .items() for some reason doesn't return the right values
+                if nm in mod.__dict__:
+                    setattr(mod, nm, old_funcs[nm])
+
 
 # %% [markdown]
 # ## Memory footprint
@@ -1257,6 +1432,8 @@ if __name__ == "__main__":
 
 # %%
 if __name__ == "__main__":
+    import pytest
+    from statGLOW.utils import does_not_warn
     from collections import Counter
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
@@ -1370,14 +1547,14 @@ if __name__ == "main":
     dim = 4
     rank = 4
     #test is_equal
-    diagonal = np.random.rand(dim) 
+    diagonal = np.random.rand(dim)
     odiag1 = np.random.rand()
-    odiag2 = np.random.rand() 
+    odiag2 = np.random.rand()
     A = SymmetricTensor(rank = rank, dim =dim)
     A['iiii'] = diagonal
     A['iiij'] = odiag1
     A['iijj'] = odiag2
-    
+
     assert (A[0,1,:,:].todense() == A.todense()[0,1,::]).any()
     assert (A[0,1,:,:]).is_equal(A[1,0,:,:])
     assert (A[0,1,1,:]).is_equal(A[1,1,0,:])
@@ -1451,6 +1628,56 @@ if __name__ == "main":
     assert foo2.json() == foo.json()
 
 # %% [markdown]
+# ### Avoiding array coercion
+#
+# `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
+
+# %%
+if __name__ == "__main__":
+    A = SymmetricTensor(rank=2, dim=3)
+    B = SymmetricTensor(rank=2, dim=3)
+    with pytest.warns(UserWarning):
+        assert type(np.asarray(A)) is np.ndarray
+    # `like` argument is supported and avoids the conversion to dense array
+    with does_not_warn(UserWarning):
+        assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
+
+# %% [markdown]
+# Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
+
+    # %%
+    # Context manager works as expected…
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+    # …and returns the module to its clean state on exit…
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+    with pytest.warns(UserWarning):
+        assert type(np.asarray(A)) is np.ndarray
+    # …even when an error is raised within the context.
+    try:
+        with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+            raise ValueError
+    except ValueError:
+        pass
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+
+# %% [markdown]
+# Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
+
+# %%
+with does_not_warn(UserWarning):
+    np.einsum_path("ij,ik", A, B)
+    np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+
+with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+    with does_not_warn(UserWarning):
+        np.einsum_path("ij,ik", A, B)
+        np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+
+# %% [markdown]
 # ### WIP
 #
 # *Ordering permutation classes.*
@@ -1486,7 +1713,7 @@ if __name__ == "__main__":
 
 
 
-    
+
 
 
 
@@ -1494,7 +1721,7 @@ if __name__ == "__main__":
 # ### Tensordot
 
 # %%
-if __name__ == "__main__": 
+if __name__ == "__main__":
     #outer product
     def transpose(A, axes):
         return np.transpose(A, axes)
@@ -1521,16 +1748,16 @@ if __name__ == "__main__":
     test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
     assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
     assert test_tensor_12['ij'] == 0.5
-    
+
 
 
     # %%
     #outer product with tensordot
-    def test_tensordot(tensor_1, tensor_2, prec =1e-10): 
+    def test_tensordot(tensor_1, tensor_2, prec =1e-10):
         test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
         assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
 
-        #Contract over first and last indices: 
+        #Contract over first and last indices:
         test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
         dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
@@ -1539,17 +1766,17 @@ if __name__ == "__main__":
         test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
         assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
 
-        #Contract over two first and last indices: 
+        #Contract over two first and last indices:
         test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
         dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =2 ))
         if isinstance(test_tensor_15, SymmetricTensor):
             assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).any()
-        else: 
+        else:
             assert test_tensor_15 == dense_tensor_15
-        
-        if tensor_1.rank >2 and tensor_2.rank >2: 
+
+        if tensor_1.rank >2 and tensor_2.rank >2:
             test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
             dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
@@ -1563,12 +1790,12 @@ if __name__ == "__main__":
             assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).any()
             assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).any()
             assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).any()
-        
-    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]: 
-        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]: 
+
+    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
+        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
             if A.rank +B.rank <= 8: #otherwise we can't convert to dense
                 test_tensordot(A,B)
-   
+
 
 
 # %% [markdown]
@@ -1579,9 +1806,9 @@ if __name__ == "__main__":
     rank = 4
     dim = 10
     #test is_equal
-    diagonal = np.random.rand(dim) 
+    diagonal = np.random.rand(dim)
     odiag1 = np.random.rand()
-    odiag2 = np.random.rand() 
+    odiag2 = np.random.rand()
     A = SymmetricTensor(rank = rank, dim =dim)
     B = SymmetricTensor(rank = rank, dim =dim)
     A['iiii'] = diagonal
@@ -1591,9 +1818,7 @@ if __name__ == "__main__":
     A['iijj'] = odiag2
     B['iijj'] = odiag2
     assert A.is_equal(B)
-    
+
     #test copying
     C = A.copy()
     assert C.is_equal(A)
-
-
