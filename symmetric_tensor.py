@@ -919,14 +919,22 @@ class SymmetricTensor(Serializable):
         Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
         The result generated here is the symmetrized version of the outer product.
         """
-        if self.dim != other.dim:
-            raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
-        else:
-            C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
-            for I in C.index_class_iter():
-                list1, list2 = partition_list_into_two(I, self.rank, other.rank)
-                C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
+        if isinstance(other, SymmetricTensor):
+            if self.dim != other.dim:
+                raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
+            else:
+                C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
+                for I in C.index_class_iter():
+                    list1, list2 = partition_list_into_two(I, self.rank, other.rank)
+                    C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
+                return C
+        elif isinstance(other, list): 
+            C = self.copy()
+            for o in other:
+                C = C.outer_product(o)
             return C
+        elif not isinstance(other, (SymmetricTensor,list)): 
+            raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
 
     def tensordot(self, other, axes=2):
         """
@@ -993,6 +1001,35 @@ class SymmetricTensor(Serializable):
             C[σcls] = [ np.sum([_index_perm_prod_sum(W, idx_fixed, idx_permute)*self[idx_permute] 
                       for idx_permute in self.index_class_iter()]) for idx_fixed in self.index_class_iter(class_label= σcls) ]
             
+        return C
+    
+    def contract_tensor_list(self, tensor_list, n_times =1): 
+        '''
+        Do the following contraction: 
+        
+        out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...} 
+        = Symmetrize( \sum_{i_{r-n_times+1}, ..., i_r} outer( self_{i_1,i_2,.. i_r}, tensor_list[i_{r-n_times+1}]_{j_1,j_2,...j_m}, 
+        
+        Important: The tensors in tensor_list must be symmetric. 
+        This is essentially a way to do a contraction between a symmetric and quasi_symmetric tensor \chi. Let 
+        
+        \chi_{i,j_1,j_2,...,j_m} = tensor_list[i]_{j_1,j_2,...j_m}
+        
+        Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,... 
+        for fixed i are, we can do a contraction along the first index. 
+        '''
+        
+        assert n_times <= self.rank, f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}"
+        for list_entry in tensor_list: 
+            assert isinstance(list_entry, SymmetricTensor), "tensor:list entries must be instances of SymmetricTensor"
+        
+        get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
+        indices = itertools.product(range(self.dim), repeat = n_times)
+        chi_rank = tensor_list[0].rank
+        C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
+        for idx in indices: 
+            slice_idx = get_slice_index(idx, self.rank)
+            C += self[slice_idx].outer_product([tensor_list[i] for i in idx])
         return C
 
     ## Array creation, copy, etc. ##
@@ -1251,32 +1288,34 @@ class SymmetricTensor(Serializable):
         '''
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
-    def split_legs(self, out_index, num_splits, split_into = 2):
-        '''
-        For SimpleFLOW activation layers, we want to sometimes create new tensors according to specific diagrammatic
-        rules. We here create Tensors which correspond to splitting num_splits legs of our tensor into split_into new legs.
-        each.'''
 
-        # when we split one leg into split_into new legs, we get split_into-1 additional legs out.
-        C = SymmetricTensor(dim = self.dim, rank = self.rank + num_splits*(split_into-1))
+# %%
+if __name__=="__main__": 
+    dim = 4
+    for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
+        test_tensor = SymmetricTensor(rank =3, dim = dim)
+        test_tensor['iii'] = np.random.rand(dim)
+        test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
+        test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
+        
+        tensor_list = []
+        chi_dense = np.zeros( (dim,)*3)
+        def get_random_symtensor_rank2(dim): 
+            tensor = SymmetricTensor(rank=2, dim =dim)
+            tensor['ii'] = np.random.rand(dim)
+            tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
+            return tensor
+        for i in range(dim): 
+            random_tensor = get_random_symtensor_rank2(dim)
+            tensor_list += [random_tensor]
+            chi_dense[i,:,:] = random_tensor.todense()
 
-        D = SymmetricTensor(dim = self.dim, rank = num_splits)
+        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1)
+        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2)
 
-        split_σclss = [σcls*split_into for σcls in D.perm_classes]
-        for σcls in C.perm_classes:
-            C[σcls] = [ self[σcls_1] for σcls_1 in self.perm_classes if C.is_subσcls(σcls,σcls_1)
-
-
-
-
-            ]
-            
-
-
-
-
-
-
+        print( (contract_1.todense() == np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense)).all())
+        #assert (contract_2.todense() == np.einsum('iab, ajk, blm  -> ijklm', test_tensor.todense(), chi_dense, chi_dense)).any()
+        #print(contract_1.todense()- np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))
 
 # %% [markdown]
 # ### Implementation of the `__array_function__` protocol
@@ -1299,41 +1338,40 @@ class SymmetricTensor(Serializable):
 # - `einsum_path()`
 # - `einsum()` [**TODO**]
 
-# %%
-HANDLED_FUNCTIONS = {}
-
-def implements(numpy_function):
-    """Register an __array_function__ implementation for SymmetricTensor objects."""
-    def decorator(func):
-        HANDLED_FUNCTIONS[numpy_function] = func
-        return func
-    return decorator
-
-@implements(np.asarray)
-def asarray(a, dtype=None, order=None):
-    return a.asarray(dtype, order=order)
-
-@implements(np.asanyarray)
-def asanyarray(a, dtype=None, order=None):
-    return a.asanyarray(dtype, order=order)
-
-@implements(np.tensordot)
-def tensordot(a, b, axes=2):
-    return a.tensordot(b, axes=2)
-
-@implements(np.einsum_path)
-def einsum_path(*operands, optimize='greedy', einsum_call=False):
-    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-        return np.core.einsumfunc.einsum_path.__wrapped__(
-            *operands, optimize=optimize, einsum_call=einsum_call)
-
-# TODO
-#@implements(np.einsum)
-#def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
-#    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
-#    #     C code which requires true arrays
-#    ...
-
+# %% [markdown]
+# HANDLED_FUNCTIONS = {}
+#
+# def implements(numpy_function):
+#     """Register an __array_function__ implementation for SymmetricTensor objects."""
+#     def decorator(func):
+#         HANDLED_FUNCTIONS[numpy_function] = func
+#         return func
+#     return decorator
+#
+# @implements(np.asarray)
+# def asarray(a, dtype=None, order=None):
+#     return a.asarray(dtype, order=order)
+#
+# @implements(np.asanyarray)
+# def asanyarray(a, dtype=None, order=None):
+#     return a.asanyarray(dtype, order=order)
+#
+# @implements(np.tensordot)
+# def tensordot(a, b, axes=2):
+#     return a.tensordot(b, axes=2)
+#
+# @implements(np.einsum_path)
+# def einsum_path(*operands, optimize='greedy', einsum_call=False):
+#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#         return np.core.einsumfunc.einsum_path.__wrapped__(
+#             *operands, optimize=optimize, einsum_call=einsum_call)
+#
+# # TODO
+# #@implements(np.einsum)
+# #def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
+# #    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
+# #    #     C code which requires true arrays
+# #    ...
 
 # %% [markdown]
 # ### Bypassing coercion to ndarray
@@ -1361,72 +1399,71 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 #
 # Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *statGLOW/stats/symmetric_tensor.py* for an example.
 
-# %%
-from collections.abc import Iterable
-from contextlib import contextmanager
-from numpy.core import numeric as _numeric
-_make_array_like_patched_modules = set()  # Used in case of nested contexts
-@contextmanager
-def make_array_like(like, modules=()):  # UTILS
-    """
-    Monkey patch NumPy so that the type of `like` is recognized as an array.
-    Within this context, and within `module`, the default signature of `asarray(x)`
-    and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
-
-    .. Note:: Like must be an *instance* (not a type), and must implement the
-       __array_function__ protocol. See NEP35 and NEP18.
-
-    .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
-       only when no better solution is available.
-    """
-    if isinstance(modules, Iterable):
-        modules = set(modules)
-    else:
-        modules = {modules}
-    #if any(mod is np for mod in modules):
-    #    raise ValueError("`make_array_like` doesn't support overriding "
-    #                     "methods in the base 'numpy' module.")
-    # Open context: Monkey-patch Numpy function
-    def asarray(a, dtype=None, order=None, *, like=like):
-        if isinstance(a, type(like)):  # Without this, will break on normal arrays
-            return _numeric.asanyarray(a, dtype, order, like=like)
-        else:
-            return _numeric.asanyarray(a, dtype, order)
-    def asanyarray(a, dtype=None, order=None, *, like=like):
-        if isinstance(a, type(like)): # Without this, will break on normal arrays
-            return _numeric.asanyarray(a, dtype, order, like=like)
-        else:
-            return _numeric.asanyarray(a, dtype, order)
-    new_funcs = {'asarray': asarray,
-                 'asanyarray': asanyarray}
-    old_funcs = {'asarray': _numeric.asarray,
-                 'asanyarray': _numeric.asanyarray}
-    # NB: Because most NumPy modules alias these functions when they use them,
-    #     it's not sufficient to redefine np.asarray in _numeric: we need to
-    #     replace the aliases in the modules.
-    #     (assumption: aliases use the same function name)
-    for mod in modules:
-        if mod in _make_array_like_patched_modules:
-            # Already patched by an outer context
-            modules.remove(mod)
-            continue
-        for nm, f in new_funcs.items():
-            if nm in mod.__dict__:
-                #import pdb; pdb.set_trace()
-                setattr(mod, nm, f)
-    # Return control to code inside context
-    try:
-        yield None
-    # Close context: Undo the monkey patching
-    except Exception:
-        raise
-    finally:
-        for mod in modules:
-            for nm in old_funcs:
-                # Iterating over .items() for some reason doesn't return the right values
-                if nm in mod.__dict__:
-                    setattr(mod, nm, old_funcs[nm])
-
+# %% [markdown]
+# from collections.abc import Iterable
+# from contextlib import contextmanager
+# from numpy.core import numeric as _numeric
+# _make_array_like_patched_modules = set()  # Used in case of nested contexts
+# @contextmanager
+# def make_array_like(like, modules=()):  # UTILS
+#     """
+#     Monkey patch NumPy so that the type of `like` is recognized as an array.
+#     Within this context, and within `module`, the default signature of `asarray(x)`
+#     and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
+#
+#     .. Note:: Like must be an *instance* (not a type), and must implement the
+#        __array_function__ protocol. See NEP35 and NEP18.
+#
+#     .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
+#        only when no better solution is available.
+#     """
+#     if isinstance(modules, Iterable):
+#         modules = set(modules)
+#     else:
+#         modules = {modules}
+#     #if any(mod is np for mod in modules):
+#     #    raise ValueError("`make_array_like` doesn't support overriding "
+#     #                     "methods in the base 'numpy' module.")
+#     # Open context: Monkey-patch Numpy function
+#     def asarray(a, dtype=None, order=None, *, like=like):
+#         if isinstance(a, type(like)):  # Without this, will break on normal arrays
+#             return _numeric.asanyarray(a, dtype, order, like=like)
+#         else:
+#             return _numeric.asanyarray(a, dtype, order)
+#     def asanyarray(a, dtype=None, order=None, *, like=like):
+#         if isinstance(a, type(like)): # Without this, will break on normal arrays
+#             return _numeric.asanyarray(a, dtype, order, like=like)
+#         else:
+#             return _numeric.asanyarray(a, dtype, order)
+#     new_funcs = {'asarray': asarray,
+#                  'asanyarray': asanyarray}
+#     old_funcs = {'asarray': _numeric.asarray,
+#                  'asanyarray': _numeric.asanyarray}
+#     # NB: Because most NumPy modules alias these functions when they use them,
+#     #     it's not sufficient to redefine np.asarray in _numeric: we need to
+#     #     replace the aliases in the modules.
+#     #     (assumption: aliases use the same function name)
+#     for mod in modules:
+#         if mod in _make_array_like_patched_modules:
+#             # Already patched by an outer context
+#             modules.remove(mod)
+#             continue
+#         for nm, f in new_funcs.items():
+#             if nm in mod.__dict__:
+#                 #import pdb; pdb.set_trace()
+#                 setattr(mod, nm, f)
+#     # Return control to code inside context
+#     try:
+#         yield None
+#     # Close context: Undo the monkey patching
+#     except Exception:
+#         raise
+#     finally:
+#         for mod in modules:
+#             for nm in old_funcs:
+#                 # Iterating over .items() for some reason doesn't return the right values
+#                 if nm in mod.__dict__:
+#                     setattr(mod, nm, old_funcs[nm])
 
 # %% [markdown]
 # ## Memory footprint
@@ -1652,14 +1689,14 @@ if __name__ == "main":
 # %% [markdown]
 # ### Serialization
 
-    # %%
-    class Foo(BaseModel):
-        A: SymmetricTensor
-        class Config:
-            json_encoders = {Serializable: Serializable.json_encoder}
-    foo = Foo(A=A)
-    foo2 = Foo.parse_raw(foo.json())
-    assert foo2.json() == foo.json()
+# %% [markdown]
+#     class Foo(BaseModel):
+#         A: SymmetricTensor
+#         class Config:
+#             json_encoders = {Serializable: Serializable.json_encoder}
+#     foo = Foo(A=A)
+#     foo2 = Foo.parse_raw(foo.json())
+#     assert foo2.json() == foo.json()
 
 # %% [markdown]
 # ### Avoiding array coercion
@@ -1724,6 +1761,14 @@ if __name__ == "main":
 
 # %%
 if __name__ == "__main__":
+    def transpose(A, axes):
+        return np.transpose(A, axes)
+    from itertools import permutations
+
+    def symmetrize(dense_tensor):
+        D = dense_tensor.ndim
+        n = np.prod(range(1,D+1))  # Factorial – number of permutations
+        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
     rank = 4
     dim = 2
     #test addition
@@ -1758,9 +1803,9 @@ if __name__ == "__main__":
     test_tensor_3d = test_tensor_3.todense()
     prec =1e-10
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).any()
+    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).all()
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
-    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).any()
+    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
 
     test_tensor_10 = SymmetricTensor(rank=1, dim=2)
     test_tensor_10['i'] = [1,0]
@@ -1793,7 +1838,7 @@ if __name__ == "__main__":
                                                   tensor_2.todense(),
                                                   axes =2 ))
         if isinstance(test_tensor_15, SymmetricTensor):
-            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).any()
+            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
         else:
             assert test_tensor_15 == dense_tensor_15
 
@@ -1808,9 +1853,9 @@ if __name__ == "__main__":
             dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =((0,1,2),(2,0,1)) ))
-            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).any()
-            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).any()
-            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).any()
+            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
+            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
+            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
 
     for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
         for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
@@ -1824,14 +1869,7 @@ if __name__ == "__main__":
 
 # %%
 if __name__ == "__main__": 
-    def transpose(A, axes):
-        return np.transpose(A, axes)
-    from itertools import permutations
-
-    def symmetrize(dense_tensor):
-        D = dense_tensor.ndim
-        n = np.prod(range(1,D+1))  # Factorial – number of permutations
-        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
+    
     A = SymmetricTensor(rank = 3, dim=3)
     A[0,0,0] =1
     A[0,0,1] =-12
@@ -1841,8 +1879,8 @@ if __name__ == "__main__":
     A[1,2,2] = 0.1
     W = np.random.rand(3,3)
     W1 = np.random.rand(3,3)
-    assert (A.contract_all_indices(W).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).any()
-    assert (A.contract_all_indices(W1).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).any()
+    assert (A.contract_all_indices(W).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
+    assert (A.contract_all_indices(W1).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
 
 # %% [markdown]
 # ## Copying and Equality
