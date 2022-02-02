@@ -1399,71 +1399,72 @@ if __name__=="__main__":
 #
 # Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *statGLOW/stats/symmetric_tensor.py* for an example.
 
-# %% [markdown]
-# from collections.abc import Iterable
-# from contextlib import contextmanager
-# from numpy.core import numeric as _numeric
-# _make_array_like_patched_modules = set()  # Used in case of nested contexts
-# @contextmanager
-# def make_array_like(like, modules=()):  # UTILS
-#     """
-#     Monkey patch NumPy so that the type of `like` is recognized as an array.
-#     Within this context, and within `module`, the default signature of `asarray(x)`
-#     and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
-#
-#     .. Note:: Like must be an *instance* (not a type), and must implement the
-#        __array_function__ protocol. See NEP35 and NEP18.
-#
-#     .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
-#        only when no better solution is available.
-#     """
-#     if isinstance(modules, Iterable):
-#         modules = set(modules)
-#     else:
-#         modules = {modules}
-#     #if any(mod is np for mod in modules):
-#     #    raise ValueError("`make_array_like` doesn't support overriding "
-#     #                     "methods in the base 'numpy' module.")
-#     # Open context: Monkey-patch Numpy function
-#     def asarray(a, dtype=None, order=None, *, like=like):
-#         if isinstance(a, type(like)):  # Without this, will break on normal arrays
-#             return _numeric.asanyarray(a, dtype, order, like=like)
-#         else:
-#             return _numeric.asanyarray(a, dtype, order)
-#     def asanyarray(a, dtype=None, order=None, *, like=like):
-#         if isinstance(a, type(like)): # Without this, will break on normal arrays
-#             return _numeric.asanyarray(a, dtype, order, like=like)
-#         else:
-#             return _numeric.asanyarray(a, dtype, order)
-#     new_funcs = {'asarray': asarray,
-#                  'asanyarray': asanyarray}
-#     old_funcs = {'asarray': _numeric.asarray,
-#                  'asanyarray': _numeric.asanyarray}
-#     # NB: Because most NumPy modules alias these functions when they use them,
-#     #     it's not sufficient to redefine np.asarray in _numeric: we need to
-#     #     replace the aliases in the modules.
-#     #     (assumption: aliases use the same function name)
-#     for mod in modules:
-#         if mod in _make_array_like_patched_modules:
-#             # Already patched by an outer context
-#             modules.remove(mod)
-#             continue
-#         for nm, f in new_funcs.items():
-#             if nm in mod.__dict__:
-#                 #import pdb; pdb.set_trace()
-#                 setattr(mod, nm, f)
-#     # Return control to code inside context
-#     try:
-#         yield None
-#     # Close context: Undo the monkey patching
-#     except Exception:
-#         raise
-#     finally:
-#         for mod in modules:
-#             for nm in old_funcs:
-#                 # Iterating over .items() for some reason doesn't return the right values
-#                 if nm in mod.__dict__:
-#                     setattr(mod, nm, old_funcs[nm])
+# %%
+from collections.abc import Iterable
+from contextlib import contextmanager
+from numpy.core import numeric as _numeric
+_make_array_like_patched_modules = set()  # Used in case of nested contexts
+@contextmanager
+def make_array_like(like, modules=()):  # UTILS
+    """
+    Monkey patch NumPy so that the type of `like` is recognized as an array.
+    Within this context, and within `module`, the default signature of `asarray(x)`
+    and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
+
+    .. Note:: Like must be an *instance* (not a type), and must implement the
+       __array_function__ protocol. See NEP35 and NEP18.
+
+    .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
+       only when no better solution is available.
+    """
+    if isinstance(modules, Iterable):
+        modules = set(modules)
+    else:
+        modules = {modules}
+    #if any(mod is np for mod in modules):
+    #    raise ValueError("`make_array_like` doesn't support overriding "
+    #                     "methods in the base 'numpy' module.")
+    # Open context: Monkey-patch Numpy function
+    def asarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)):  # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    def asanyarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)): # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    new_funcs = {'asarray': asarray,
+                 'asanyarray': asanyarray}
+    old_funcs = {'asarray': _numeric.asarray,
+                 'asanyarray': _numeric.asanyarray}
+    # NB: Because most NumPy modules alias these functions when they use them,
+    #     it's not sufficient to redefine np.asarray in _numeric: we need to
+    #     replace the aliases in the modules.
+    #     (assumption: aliases use the same function name)
+    for mod in modules:
+        if mod in _make_array_like_patched_modules:
+            # Already patched by an outer context
+            modules.remove(mod)
+            continue
+        for nm, f in new_funcs.items():
+            if nm in mod.__dict__:
+                #import pdb; pdb.set_trace()
+                setattr(mod, nm, f)
+    # Return control to code inside context
+    try:
+        yield None
+    # Close context: Undo the monkey patching
+    except Exception:
+        raise
+    finally:
+        for mod in modules:
+            for nm in old_funcs:
+                # Iterating over .items() for some reason doesn't return the right values
+                if nm in mod.__dict__:
+                    setattr(mod, nm, old_funcs[nm])
+
 
 # %% [markdown]
 # ## Memory footprint
@@ -1689,14 +1690,14 @@ if __name__ == "main":
 # %% [markdown]
 # ### Serialization
 
-# %% [markdown]
-#     class Foo(BaseModel):
-#         A: SymmetricTensor
-#         class Config:
-#             json_encoders = {Serializable: Serializable.json_encoder}
-#     foo = Foo(A=A)
-#     foo2 = Foo.parse_raw(foo.json())
-#     assert foo2.json() == foo.json()
+    # %%
+    class Foo(BaseModel):
+        A: SymmetricTensor
+        class Config:
+            json_encoders = {Serializable: Serializable.json_encoder}
+    foo = Foo(A=A)
+    foo2 = Foo.parse_raw(foo.json())
+    assert foo2.json() == foo.json()
 
 # %% [markdown]
 # ### Avoiding array coercion
@@ -1716,24 +1717,24 @@ if __name__ == "main":
 # %% [markdown]
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
-# %% [markdown]
-#     # Context manager works as expected…
-#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-#     # …and returns the module to its clean state on exit…
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # …even when an error is raised within the context.
-#     try:
-#         with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-#             raise ValueError
-#     except ValueError:
-#         pass
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+    # %%
+    # Context manager works as expected…
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+    # …and returns the module to its clean state on exit…
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+    with pytest.warns(UserWarning):
+        assert type(np.asarray(A)) is np.ndarray
+    # …even when an error is raised within the context.
+    try:
+        with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+            raise ValueError
+    except ValueError:
+        pass
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
 
 # %% [markdown]
 # Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
