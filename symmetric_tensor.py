@@ -543,6 +543,7 @@ class SymmetricTensor(Serializable):
     """
     On creation, defaults to a zero tensor.
     """
+    _HANDLED_FUNCTIONS = {}  # Registry used for __array_function__ protocol
     indices: ClassVar[str] = "ijklmnαβγδ"
 
     rank                 : int
@@ -598,8 +599,10 @@ class SymmetricTensor(Serializable):
                                      f"should have shape {(self._class_sizes[k],)}, "
                                      f"but the provided data has shape {v.shape}.")
             # Replace blank data with the provided data
-            self._data = {k: v.astype(dtype) for k, v in data.items()}
-
+            self._data = {k: v.astype(dtype) if hasattr(v, 'astype')
+                             else dtype.type(v)
+                          for k, v in data.items()}
+            
     ## Pydantic serialization ##
     class Data(BaseModel):
         rank: int
@@ -858,19 +861,29 @@ class SymmetricTensor(Serializable):
             else:
                 self._data[σcls][pos] = value
 
-    ## Numpy dispatch protocols – see NEP13, NEP18 ##
+    ## Numpy dispatch protocols ##
 
+    # __array_function__ protocol (NEP 18)
+    
     def __array_function__(self, func, types, args, kwargs):
-        # See "Implementation of the __array_function__ protocol" below
-        # for construction of HANDLED_FUNCTIONS
-        if func not in HANDLED_FUNCTIONS:
+        if func not in self._HANDLED_FUNCTIONS:
             return NotImplemented
         # NB: In contrast to the example in NEP18, we don't require
         #     arguments to be SymmetricTensors – ndarray is also allowed.
         if not all(issubclass(t, (SymmetricTensor, np.ndarray)) for t in types):
             return NotImplemented
-        return HANDLED_FUNCTIONS[func](*args, **kwargs)
+        return self._HANDLED_FUNCTIONS[func](*args, **kwargs)
+    
+    @classmethod
+    def implements(cls, numpy_function):
+        """Register an __array_function__ implementation for SymmetricTensor objects."""
+        def decorator(func):
+            cls._HANDLED_FUNCTIONS[numpy_function] = func
+            return func
+        return decorator
 
+    # __array_ufunc__ protocol (NEP 13)
+    
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
             if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
@@ -904,7 +917,7 @@ class SymmetricTensor(Serializable):
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
 
-    # Implementations of operations
+    # Implementations of ufuncs
 
     def __add__(self, other):
         return np.add(self, other)
@@ -945,33 +958,51 @@ class SymmetricTensor(Serializable):
         if self.dim != other.dim:
             raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
         if isinstance(axes,int):
-            if axes ==0:
+            if axes == 0:
                 return self.outer_product(other)
-            elif axes ==1:
+            elif axes == 1:
                 # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
-                return np.sum( [self.__getitem__(i).outer_product(other[i]) for i in range(self.dim)])
-            elif axes ==2:
-                if self.rank < 2 or other.rank <2:
+                return sum((self[i].outer_product(other[i]) for i in range(self.dim)),
+                           start=SymmetricTensor(self.rank + other.rank - 2, self.dim))
+            elif axes == 2:
+                if self.rank < 2 or other.rank < 2:
                     raise ValueError("Both tensors must have rank >=2")
                 get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
-                C = np.sum([np.multiply.outer(self[get_slice_index(i,j,self.rank)],
-                                     other[get_slice_index(i,j,other.rank)]) for i in range(self.dim) for j in range(other.dim)])
+                C = sum((np.multiply.outer(
+                            self[get_slice_index(i,j,self.rank)],
+                            other[get_slice_index(i,j,other.rank)])
+                         for i in range(self.dim) for j in range(other.dim)),
+                        start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
                 return C
+            else:
+                raise NotImplementedError("tensordot is currently implemented only for 'axes'= 0, 1, 2. "
+                                          f"Received: {axes}")
         elif isinstance(axes, tuple):
             axes1 ,axes2 = axes
             if isinstance(axes1, tuple):
-                assert isinstance(axes2, tuple), 'axes must be either int, tuple of length 2, or tuple of tuples'
-                assert len(axes1) == len(axes2), '# dimensions to sum over must match'
+                if not isinstance(axes2, tuple):
+                    raise TypeError("'axes' must be either int, tuple of length 2, or tuple of tuples. "
+                                    f"Received: {axes}")
+                if len(axes1) != len(axes2):
+                    raise ValueError("# dimensions to sum over must match")
                 rank_deduct = len(axes1)
                 get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-rank_deduct)
-                C = np.sum([np.multiply.outer(self[get_slice_index(idx,self.rank)],
-                                     other[get_slice_index(idx,other.rank)]) for idx in itertools.product(range(self.dim),repeat = rank_deduct)])
+                C = sum((np.multiply.outer(self[get_slice_index(idx,self.rank)],
+                                           other[get_slice_index(idx,other.rank)])
+                         for idx in itertools.product(range(self.dim),repeat = rank_deduct)),
+                        start=SymmetricTensor(self.rank + other.rank - 2*rank_deduct, self.dim))
                 return C
             elif isinstance(axes1,int):
-                assert isinstance(axes2,int),  'axes must be either int, tuple of length 2, or tuple of tuples'
-                return self.tensordot(other, axes =1)
+                if not isinstance(axes2,int):
+                    raise TypeError("'axes' must be either int, tuple of length 2, or tuple of tuples. "
+                                    f"Received: {axes}")
+                return self.tensordot(other, axes = 1)
+            else:
+                raise TypeError("'axes' must be either int, tuple of length 2, or tuple of tuples. "
+                                f"Received: {axes}")
         else:
-            raise NotImplementedError("Tensordot with more axes than two is currently not implemented.")
+            raise NotImplementedError("Tensordot with more axes than two is currently not implemented. "
+                                      f"Received: axes={axes}")
             
     def contract_all_indices(self,W): 
         '''
@@ -1317,6 +1348,7 @@ if __name__=="__main__":
         #assert (contract_2.todense() == np.einsum('iab, ajk, blm  -> ijklm', test_tensor.todense(), chi_dense, chi_dense)).any()
         #print(contract_1.todense()- np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))
 
+
 # %% [markdown]
 # ### Implementation of the `__array_function__` protocol
 #
@@ -1327,6 +1359,8 @@ if __name__=="__main__":
 # - There has been a lot of discussion regarding dispatching mechanisms for NumPy duck arrays – see [NEP 18](https://numpy.org/neps/nep-0018-array-function-protocol.html), [NEP 22](https://numpy.org/neps/nep-0022-ndarray-duck-typing-overview.html), [NEP 30](https://numpy.org/neps/nep-0030-duck-array-protocol.html), [NEP 31](https://numpy.org/neps/nep-0031-uarray.html), [NEP 35](https://numpy.org/neps/nep-0035-array-creation-dispatch-with-array-function.html), [NEP 47](https://numpy.org/neps/nep-0047-array-api-standard.html). Of these, only NEP 18 and NEP 35 have actually been adopted; NEP 47 seems to be where this will go in the future, but it's likely to be a few years still before this becomes implemented.
 # - `tensordot` is often used as a motivating example in these cases, so whenever this matures, it likely will address the use cases we have here.
 # - There is already an [open issue](https://github.com/numpy/numpy/issues/11506) for supporting `einsum_path` with non-NumPy arrays on NumPy's GitHub.
+# - I think the reason NEP 18 suggests defining these operations outside of the class, is that it avoids the bloating the class definition with lots of boilerplate code even when there are many defined operations.  
+#   We could consider using a similar pattern for ufuncs.
 #
 # **Implemented array functions**
 #
@@ -1338,45 +1372,37 @@ if __name__=="__main__":
 # - `einsum_path()`
 # - `einsum()` [**TODO**]
 
-# %% [markdown]
-# HANDLED_FUNCTIONS = {}
-#
-# def implements(numpy_function):
-#     """Register an __array_function__ implementation for SymmetricTensor objects."""
-#     def decorator(func):
-#         HANDLED_FUNCTIONS[numpy_function] = func
-#         return func
-#     return decorator
-#
-# @implements(np.asarray)
-# def asarray(a, dtype=None, order=None):
-#     return a.asarray(dtype, order=order)
-#
-# @implements(np.asanyarray)
-# def asanyarray(a, dtype=None, order=None):
-#     return a.asanyarray(dtype, order=order)
-#
-# @implements(np.tensordot)
-# def tensordot(a, b, axes=2):
-#     return a.tensordot(b, axes=2)
-#
-# @implements(np.einsum_path)
-# def einsum_path(*operands, optimize='greedy', einsum_call=False):
-#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         return np.core.einsumfunc.einsum_path.__wrapped__(
-#             *operands, optimize=optimize, einsum_call=einsum_call)
-#
-# # TODO
-# #@implements(np.einsum)
-# #def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
-# #    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
-# #    #     C code which requires true arrays
-# #    ...
+# %%
+@SymmetricTensor.implements(np.asarray)
+def asarray(a, dtype=None, order=None):
+    return a.asarray(dtype, order=order)
+
+@SymmetricTensor.implements(np.asanyarray)
+def asanyarray(a, dtype=None, order=None):
+    return a.asanyarray(dtype, order=order)
+
+@SymmetricTensor.implements(np.tensordot)
+def tensordot(a, b, axes=2):
+    return a.tensordot(b, axes=2)
+
+@SymmetricTensor.implements(np.einsum_path)
+def einsum_path(*operands, optimize='greedy', einsum_call=False):
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        return np.core.einsumfunc.einsum_path.__wrapped__(
+            *operands, optimize=optimize, einsum_call=einsum_call)
+
+# TODO
+#@SymmetricTensor.implements(np.einsum)
+#def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
+#    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
+#    #     C code which requires true arrays
+#    ...
+
 
 # %% [markdown]
 # ### Bypassing coercion to ndarray
 #
-# (Note: the `make_array_like` context manager is not specific to `SymmetricTensor`, and could be moved to a *utils* module*.)
+# (Note: the `make_array_like` context manager is not specific to `SymmetricTensor`, and could be moved to a *utils* module.)
 #
 # A lot of the provided NumPy functions use `asarray` or `asanyarray` to ensure their inputs are array-like (and not, say, a list). Unfortunately this also coerces inputs into NumPy arrays, which we absolutely want to avoid with `SymmetricTensor`. The problem as that these functions are used for two different purposes:
 # - When it is required that arguments truly be NumPy arrays;
@@ -1399,71 +1425,72 @@ if __name__=="__main__":
 #
 # Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *statGLOW/stats/symmetric_tensor.py* for an example.
 
-# %% [markdown]
-# from collections.abc import Iterable
-# from contextlib import contextmanager
-# from numpy.core import numeric as _numeric
-# _make_array_like_patched_modules = set()  # Used in case of nested contexts
-# @contextmanager
-# def make_array_like(like, modules=()):  # UTILS
-#     """
-#     Monkey patch NumPy so that the type of `like` is recognized as an array.
-#     Within this context, and within `module`, the default signature of `asarray(x)`
-#     and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
-#
-#     .. Note:: Like must be an *instance* (not a type), and must implement the
-#        __array_function__ protocol. See NEP35 and NEP18.
-#
-#     .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
-#        only when no better solution is available.
-#     """
-#     if isinstance(modules, Iterable):
-#         modules = set(modules)
-#     else:
-#         modules = {modules}
-#     #if any(mod is np for mod in modules):
-#     #    raise ValueError("`make_array_like` doesn't support overriding "
-#     #                     "methods in the base 'numpy' module.")
-#     # Open context: Monkey-patch Numpy function
-#     def asarray(a, dtype=None, order=None, *, like=like):
-#         if isinstance(a, type(like)):  # Without this, will break on normal arrays
-#             return _numeric.asanyarray(a, dtype, order, like=like)
-#         else:
-#             return _numeric.asanyarray(a, dtype, order)
-#     def asanyarray(a, dtype=None, order=None, *, like=like):
-#         if isinstance(a, type(like)): # Without this, will break on normal arrays
-#             return _numeric.asanyarray(a, dtype, order, like=like)
-#         else:
-#             return _numeric.asanyarray(a, dtype, order)
-#     new_funcs = {'asarray': asarray,
-#                  'asanyarray': asanyarray}
-#     old_funcs = {'asarray': _numeric.asarray,
-#                  'asanyarray': _numeric.asanyarray}
-#     # NB: Because most NumPy modules alias these functions when they use them,
-#     #     it's not sufficient to redefine np.asarray in _numeric: we need to
-#     #     replace the aliases in the modules.
-#     #     (assumption: aliases use the same function name)
-#     for mod in modules:
-#         if mod in _make_array_like_patched_modules:
-#             # Already patched by an outer context
-#             modules.remove(mod)
-#             continue
-#         for nm, f in new_funcs.items():
-#             if nm in mod.__dict__:
-#                 #import pdb; pdb.set_trace()
-#                 setattr(mod, nm, f)
-#     # Return control to code inside context
-#     try:
-#         yield None
-#     # Close context: Undo the monkey patching
-#     except Exception:
-#         raise
-#     finally:
-#         for mod in modules:
-#             for nm in old_funcs:
-#                 # Iterating over .items() for some reason doesn't return the right values
-#                 if nm in mod.__dict__:
-#                     setattr(mod, nm, old_funcs[nm])
+# %%
+from collections.abc import Iterable
+from contextlib import contextmanager
+from numpy.core import numeric as _numeric
+_make_array_like_patched_modules = set()  # Used in case of nested contexts
+@contextmanager
+def make_array_like(like, modules=()):  # UTILS
+    """
+    Monkey patch NumPy so that the type of `like` is recognized as an array.
+    Within this context, and within `module`, the default signature of `asarray(x)`
+    and `asanyarray(x)` is changed to include `like=like` (instead of `like=None`).
+
+    .. Note:: Like must be an *instance* (not a type), and must implement the
+       __array_function__ protocol. See NEP35 and NEP18.
+
+    .. Caution:: This as hack of the ugliest kind. Please use sparingly, and
+       only when no better solution is available.
+    """
+    if isinstance(modules, Iterable):
+        modules = set(modules)
+    else:
+        modules = {modules}
+    #if any(mod is np for mod in modules):
+    #    raise ValueError("`make_array_like` doesn't support overriding "
+    #                     "methods in the base 'numpy' module.")
+    # Open context: Monkey-patch Numpy function
+    def asarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)):  # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    def asanyarray(a, dtype=None, order=None, *, like=like):
+        if isinstance(a, type(like)): # Without this, will break on normal arrays
+            return _numeric.asanyarray(a, dtype, order, like=like)
+        else:
+            return _numeric.asanyarray(a, dtype, order)
+    new_funcs = {'asarray': asarray,
+                 'asanyarray': asanyarray}
+    old_funcs = {'asarray': _numeric.asarray,
+                 'asanyarray': _numeric.asanyarray}
+    # NB: Because most NumPy modules alias these functions when they use them,
+    #     it's not sufficient to redefine np.asarray in _numeric: we need to
+    #     replace the aliases in the modules.
+    #     (assumption: aliases use the same function name)
+    for mod in modules:
+        if mod in _make_array_like_patched_modules:
+            # Already patched by an outer context
+            modules.remove(mod)
+            continue
+        for nm, f in new_funcs.items():
+            if nm in mod.__dict__:
+                #import pdb; pdb.set_trace()
+                setattr(mod, nm, f)
+    # Return control to code inside context
+    try:
+        yield None
+    # Close context: Undo the monkey patching
+    except Exception:
+        raise
+    finally:
+        for mod in modules:
+            for nm in old_funcs:
+                # Iterating over .items() for some reason doesn't return the right values
+                if nm in mod.__dict__:
+                    setattr(mod, nm, old_funcs[nm])
+
 
 # %% [markdown]
 # ## Memory footprint
@@ -1689,64 +1716,64 @@ if __name__ == "main":
 # %% [markdown]
 # ### Serialization
 
-# %% [markdown]
-#     class Foo(BaseModel):
-#         A: SymmetricTensor
-#         class Config:
-#             json_encoders = {Serializable: Serializable.json_encoder}
-#     foo = Foo(A=A)
-#     foo2 = Foo.parse_raw(foo.json())
-#     assert foo2.json() == foo.json()
+    # %%
+    class Foo(BaseModel):
+        A: SymmetricTensor
+        class Config:
+            json_encoders = {Serializable: Serializable.json_encoder}
+    foo = Foo(A=A)
+    foo2 = Foo.parse_raw(foo.json())
+    assert foo2.json() == foo.json()
 
 # %% [markdown]
 # ### Avoiding array coercion
 #
 # `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
 
-# %% [markdown]
-# if __name__ == "__main__":
-#     A = SymmetricTensor(rank=2, dim=3)
-#     B = SymmetricTensor(rank=2, dim=3)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # `like` argument is supported and avoids the conversion to dense array
-#     with does_not_warn(UserWarning):
-#         assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
+# %%
+if __name__ == "__main__":
+    A = SymmetricTensor(rank=2, dim=3)
+    B = SymmetricTensor(rank=2, dim=3)
+    with pytest.warns(UserWarning):
+        assert type(np.asarray(A)) is np.ndarray
+    # `like` argument is supported and avoids the conversion to dense array
+    with does_not_warn(UserWarning):
+        assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
 
 # %% [markdown]
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
-# %% [markdown]
-#     # Context manager works as expected…
-#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-#     # …and returns the module to its clean state on exit…
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # …even when an error is raised within the context.
-#     try:
-#         with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-#             raise ValueError
-#     except ValueError:
-#         pass
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+    # %%
+    # Context manager works as expected…
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+    # …and returns the module to its clean state on exit…
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+    with pytest.warns(UserWarning):
+        assert type(np.asarray(A)) is np.ndarray
+    # …even when an error is raised within the context.
+    try:
+        with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+            raise ValueError
+    except ValueError:
+        pass
+    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
 
 # %% [markdown]
 # Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
 
-# %% [markdown]
-# with does_not_warn(UserWarning):
-#     np.einsum_path("ij,ik", A, B)
-#     np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-#
-# with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#     with does_not_warn(UserWarning):
-#         np.einsum_path("ij,ik", A, B)
-#         np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+    # %%
+    with does_not_warn(UserWarning):
+        np.einsum_path("ij,ik", A, B)
+        np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+
+    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+        with does_not_warn(UserWarning):
+            np.einsum_path("ij,ik", A, B)
+            np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
 
 # %% [markdown]
 # ### WIP
@@ -1879,8 +1906,8 @@ if __name__ == "__main__":
     A[1,2,2] = 0.1
     W = np.random.rand(3,3)
     W1 = np.random.rand(3,3)
-    assert (A.contract_all_indices(W).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert (A.contract_all_indices(W1).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
+    assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
+    assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
 
 # %% [markdown]
 # ## Copying and Equality
