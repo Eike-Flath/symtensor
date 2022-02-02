@@ -29,6 +29,9 @@ from pydantic import BaseModel
 from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, Array, DType
+import pytest
+from statGLOW.utils import does_not_warn
+from collections import Counter
 
 # %%
 if __name__ == "__main__":
@@ -961,6 +964,36 @@ class SymmetricTensor(Serializable):
                 return self.tensordot(other, axes =1)
         else:
             raise NotImplementedError("Tensordot with more axes than two is currently not implemented.")
+            
+    def contract_all_indices(self,W): 
+        '''
+        compute the contraction over all indices with a non-symmetric matrix, e.g. 
+        
+        C_{ijk} = \sum_{abc} A_{abc} W_{ai} W_{bj} W_{ck}
+        
+        if current tensor has rank 3.
+        '''
+        
+        C = SymmetricTensor(rank = self.rank, dim = self.dim)
+        
+        def _index_perm_prod_sum(W, idx_fixed, idx_permute):
+            '''
+            For index_fixed = (j_1, ... j_r)
+            \sum_{(i_1, ... i_r) in σ(idx_permute)} W_{i_1,j_1} ... W_{i_n, j_n}
+            
+            
+            where σ(idx_permute) are all unique permutations. 
+            '''
+            idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
+            permutations_of_identical_idx = np.prod([math.factorial(r) for r in idx_repeats])
+            return np.sum( [np.prod([W[i,j] for i,j in zip(σidx,idx_fixed)])
+                          for σidx in itertools.permutations(idx_permute)] ) /permutations_of_identical_idx
+            
+        for σcls in self.perm_classes:
+            C[σcls] = [ np.sum([_index_perm_prod_sum(W, idx_fixed, idx_permute)*self[idx_permute] 
+                      for idx_permute in self.index_class_iter()]) for idx_fixed in self.index_class_iter(class_label= σcls) ]
+            
+        return C
 
     ## Array creation, copy, etc. ##
 
@@ -1237,6 +1270,7 @@ class SymmetricTensor(Serializable):
 
 
             ]
+            
 
 
 
@@ -1632,50 +1666,50 @@ if __name__ == "main":
 #
 # `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
 
-# %%
-if __name__ == "__main__":
-    A = SymmetricTensor(rank=2, dim=3)
-    B = SymmetricTensor(rank=2, dim=3)
-    with pytest.warns(UserWarning):
-        assert type(np.asarray(A)) is np.ndarray
-    # `like` argument is supported and avoids the conversion to dense array
-    with does_not_warn(UserWarning):
-        assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
+# %% [markdown]
+# if __name__ == "__main__":
+#     A = SymmetricTensor(rank=2, dim=3)
+#     B = SymmetricTensor(rank=2, dim=3)
+#     with pytest.warns(UserWarning):
+#         assert type(np.asarray(A)) is np.ndarray
+#     # `like` argument is supported and avoids the conversion to dense array
+#     with does_not_warn(UserWarning):
+#         assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
 
 # %% [markdown]
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
-    # %%
-    # Context manager works as expected…
-    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-    # …and returns the module to its clean state on exit…
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-    with pytest.warns(UserWarning):
-        assert type(np.asarray(A)) is np.ndarray
-    # …even when an error is raised within the context.
-    try:
-        with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-            raise ValueError
-    except ValueError:
-        pass
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+# %% [markdown]
+#     # Context manager works as expected…
+#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+#     # …and returns the module to its clean state on exit…
+#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+#     with pytest.warns(UserWarning):
+#         assert type(np.asarray(A)) is np.ndarray
+#     # …even when an error is raised within the context.
+#     try:
+#         with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+#             raise ValueError
+#     except ValueError:
+#         pass
+#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
 
 # %% [markdown]
 # Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
 
-# %%
-with does_not_warn(UserWarning):
-    np.einsum_path("ij,ik", A, B)
-    np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-
-with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-    with does_not_warn(UserWarning):
-        np.einsum_path("ij,ik", A, B)
-        np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+# %% [markdown]
+# with does_not_warn(UserWarning):
+#     np.einsum_path("ij,ik", A, B)
+#     np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+#
+# with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#     with does_not_warn(UserWarning):
+#         np.einsum_path("ij,ik", A, B)
+#         np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
 
 # %% [markdown]
 # ### WIP
@@ -1711,26 +1745,13 @@ if __name__ == "__main__":
     #test log, exp
     assert test_tensor_8.is_equal(test_tensor_2, prec =1e-10)
 
-
-
-
-
-
-
 # %% [markdown]
 # ### Tensordot
 
 # %%
 if __name__ == "__main__":
     #outer product
-    def transpose(A, axes):
-        return np.transpose(A, axes)
-    from itertools import permutations
-
-    def symmetrize(dense_tensor):
-        D = dense_tensor.ndim
-        n = np.prod(range(1,D+1))  # Factorial – number of permutations
-        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
+    
 
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
@@ -1797,6 +1818,31 @@ if __name__ == "__main__":
                 test_tensordot(A,B)
 
 
+
+# %% [markdown]
+# ## Contraction with matrix along all indices
+
+# %%
+if __name__ == "__main__": 
+    def transpose(A, axes):
+        return np.transpose(A, axes)
+    from itertools import permutations
+
+    def symmetrize(dense_tensor):
+        D = dense_tensor.ndim
+        n = np.prod(range(1,D+1))  # Factorial – number of permutations
+        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
+    A = SymmetricTensor(rank = 3, dim=3)
+    A[0,0,0] =1
+    A[0,0,1] =-12
+    A[0,1,2] = 0.5
+    A[2,2,2] = 1.0
+    A[0,2,2] = -30
+    A[1,2,2] = 0.1
+    W = np.random.rand(3,3)
+    W1 = np.random.rand(3,3)
+    assert (A.contract_all_indices(W).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).any()
+    assert (A.contract_all_indices(W1).todense() == symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).any()
 
 # %% [markdown]
 # ## Copying and Equality
