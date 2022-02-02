@@ -1320,35 +1320,6 @@ class SymmetricTensor(Serializable):
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
 
-# %%
-if __name__=="__main__": 
-    dim = 4
-    for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
-        test_tensor = SymmetricTensor(rank =3, dim = dim)
-        test_tensor['iii'] = np.random.rand(dim)
-        test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
-        test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
-        
-        tensor_list = []
-        chi_dense = np.zeros( (dim,)*3)
-        def get_random_symtensor_rank2(dim): 
-            tensor = SymmetricTensor(rank=2, dim =dim)
-            tensor['ii'] = np.random.rand(dim)
-            tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
-            return tensor
-        for i in range(dim): 
-            random_tensor = get_random_symtensor_rank2(dim)
-            tensor_list += [random_tensor]
-            chi_dense[i,:,:] = random_tensor.todense()
-
-        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1)
-        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2)
-
-        print( (contract_1.todense() == np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense)).all())
-        #assert (contract_2.todense() == np.einsum('iab, ajk, blm  -> ijklm', test_tensor.todense(), chi_dense, chi_dense)).any()
-        #print(contract_1.todense()- np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))
-
-
 # %% [markdown]
 # ### Implementation of the `__array_function__` protocol
 #
@@ -1908,6 +1879,36 @@ if __name__ == "__main__":
     W1 = np.random.rand(3,3)
     assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
     assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
+
+# %% [markdown]
+# ## Contraction with list of SymmetricTensors
+
+# %%
+if __name__=="__main__": 
+    dim = 4
+    for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
+        test_tensor = SymmetricTensor(rank =3, dim = dim)
+        test_tensor['iii'] = np.random.rand(dim)
+        test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
+        test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
+        
+        tensor_list = []
+        chi_dense = np.zeros( (dim,)*3)
+        def get_random_symtensor_rank2(dim): 
+            tensor = SymmetricTensor(rank=2, dim =dim)
+            tensor['ii'] = np.random.rand(dim)
+            tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
+            return tensor
+        for i in range(dim): 
+            random_tensor = get_random_symtensor_rank2(dim)
+            tensor_list += [random_tensor]
+            chi_dense[i,:,:] = random_tensor.todense()
+
+        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1)
+        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2)
+
+        assert  np.isclose(contract_1.todense(), symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))).all()
+        assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
 
 # %% [markdown]
 # ## Copying and Equality
