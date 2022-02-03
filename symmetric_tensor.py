@@ -18,6 +18,7 @@
 # # Symmetric tensor class
 
 # %%
+from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 from __future__ import annotations
 from warnings import warn
 from ast import literal_eval
@@ -26,7 +27,7 @@ import math  # For operations on plain Python objects, math can be 10x faster th
 import numpy as np
 from pydantic import BaseModel
 
-from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
+
 import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, Array, DType
 import pytest
@@ -602,7 +603,7 @@ class SymmetricTensor(Serializable):
             self._data = {k: v.astype(dtype) if hasattr(v, 'astype')
                              else dtype.type(v)
                           for k, v in data.items()}
-            
+
     ## Pydantic serialization ##
     class Data(BaseModel):
         rank: int
@@ -864,7 +865,7 @@ class SymmetricTensor(Serializable):
     ## Numpy dispatch protocols ##
 
     # __array_function__ protocol (NEP 18)
-    
+
     def __array_function__(self, func, types, args, kwargs):
         if func not in self._HANDLED_FUNCTIONS:
             return NotImplemented
@@ -873,7 +874,7 @@ class SymmetricTensor(Serializable):
         if not all(issubclass(t, (SymmetricTensor, np.ndarray)) for t in types):
             return NotImplemented
         return self._HANDLED_FUNCTIONS[func](*args, **kwargs)
-    
+
     @classmethod
     def implements(cls, numpy_function):
         """Register an __array_function__ implementation for SymmetricTensor objects."""
@@ -883,7 +884,7 @@ class SymmetricTensor(Serializable):
         return decorator
 
     # __array_ufunc__ protocol (NEP 13)
-    
+
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
             if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
@@ -941,12 +942,12 @@ class SymmetricTensor(Serializable):
                     list1, list2 = partition_list_into_two(I, self.rank, other.rank)
                     C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
                 return C
-        elif isinstance(other, list): 
+        elif isinstance(other, list):
             C = self.copy()
             for o in other:
                 C = C.outer_product(o)
             return C
-        elif not isinstance(other, (SymmetricTensor,list)): 
+        elif not isinstance(other, (SymmetricTensor,list)):
             raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
 
     def tensordot(self, other, axes=2):
@@ -1003,62 +1004,62 @@ class SymmetricTensor(Serializable):
         else:
             raise NotImplementedError("Tensordot with more axes than two is currently not implemented. "
                                       f"Received: axes={axes}")
-            
-    def contract_all_indices(self,W): 
+
+    def contract_all_indices(self,W):
         '''
-        compute the contraction over all indices with a non-symmetric matrix, e.g. 
-        
+        compute the contraction over all indices with a non-symmetric matrix, e.g.
+
         C_{ijk} = \sum_{abc} A_{abc} W_{ai} W_{bj} W_{ck}
-        
+
         if current tensor has rank 3.
         '''
-        
+
         C = SymmetricTensor(rank = self.rank, dim = self.dim)
-        
+
         def _index_perm_prod_sum(W, idx_fixed, idx_permute):
             '''
             For index_fixed = (j_1, ... j_r)
             \sum_{(i_1, ... i_r) in σ(idx_permute)} W_{i_1,j_1} ... W_{i_n, j_n}
-            
-            
-            where σ(idx_permute) are all unique permutations. 
+
+
+            where σ(idx_permute) are all unique permutations.
             '''
             idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
             permutations_of_identical_idx = np.prod([math.factorial(r) for r in idx_repeats])
             return np.sum( [np.prod([W[i,j] for i,j in zip(σidx,idx_fixed)])
                           for σidx in itertools.permutations(idx_permute)] ) /permutations_of_identical_idx
-            
+
         for σcls in self.perm_classes:
-            C[σcls] = [ np.sum([_index_perm_prod_sum(W, idx_fixed, idx_permute)*self[idx_permute] 
+            C[σcls] = [ np.sum([_index_perm_prod_sum(W, idx_fixed, idx_permute)*self[idx_permute]
                       for idx_permute in self.index_class_iter()]) for idx_fixed in self.index_class_iter(class_label= σcls) ]
-            
+
         return C
-    
-    def contract_tensor_list(self, tensor_list, n_times =1): 
+
+    def contract_tensor_list(self, tensor_list, n_times =1):
         '''
-        Do the following contraction: 
-        
-        out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...} 
-        = Symmetrize( \sum_{i_{r-n_times+1}, ..., i_r} outer( self_{i_1,i_2,.. i_r}, tensor_list[i_{r-n_times+1}]_{j_1,j_2,...j_m}, 
-        
-        Important: The tensors in tensor_list must be symmetric. 
-        This is essentially a way to do a contraction between a symmetric and quasi_symmetric tensor \chi. Let 
-        
+        Do the following contraction:
+
+        out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...}
+        = Symmetrize( \sum_{i_{r-n_times+1}, ..., i_r} outer( self_{i_1,i_2,.. i_r}, tensor_list[i_{r-n_times+1}]_{j_1,j_2,...j_m},
+
+        Important: The tensors in tensor_list must be symmetric.
+        This is essentially a way to do a contraction between a symmetric and quasi_symmetric tensor \chi. Let
+
         \chi_{i,j_1,j_2,...,j_m} = tensor_list[i]_{j_1,j_2,...j_m}
-        
-        Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,... 
-        for fixed i are, we can do a contraction along the first index. 
+
+        Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,...
+        for fixed i are, we can do a contraction along the first index.
         '''
-        
+
         assert n_times <= self.rank, f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}"
-        for list_entry in tensor_list: 
+        for list_entry in tensor_list:
             assert isinstance(list_entry, SymmetricTensor), "tensor:list entries must be instances of SymmetricTensor"
-        
+
         get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
         indices = itertools.product(range(self.dim), repeat = n_times)
         chi_rank = tensor_list[0].rank
         C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
-        for idx in indices: 
+        for idx in indices:
             slice_idx = get_slice_index(idx, self.rank)
             C += self[slice_idx].outer_product([tensor_list[i] for i in idx])
         return C
@@ -1330,7 +1331,7 @@ class SymmetricTensor(Serializable):
 # - There has been a lot of discussion regarding dispatching mechanisms for NumPy duck arrays – see [NEP 18](https://numpy.org/neps/nep-0018-array-function-protocol.html), [NEP 22](https://numpy.org/neps/nep-0022-ndarray-duck-typing-overview.html), [NEP 30](https://numpy.org/neps/nep-0030-duck-array-protocol.html), [NEP 31](https://numpy.org/neps/nep-0031-uarray.html), [NEP 35](https://numpy.org/neps/nep-0035-array-creation-dispatch-with-array-function.html), [NEP 47](https://numpy.org/neps/nep-0047-array-api-standard.html). Of these, only NEP 18 and NEP 35 have actually been adopted; NEP 47 seems to be where this will go in the future, but it's likely to be a few years still before this becomes implemented.
 # - `tensordot` is often used as a motivating example in these cases, so whenever this matures, it likely will address the use cases we have here.
 # - There is already an [open issue](https://github.com/numpy/numpy/issues/11506) for supporting `einsum_path` with non-NumPy arrays on NumPy's GitHub.
-# - I think the reason NEP 18 suggests defining these operations outside of the class, is that it avoids the bloating the class definition with lots of boilerplate code even when there are many defined operations.  
+# - I think the reason NEP 18 suggests defining these operations outside of the class, is that it avoids the bloating the class definition with lots of boilerplate code even when there are many defined operations.
 #   We could consider using a similar pattern for ufuncs.
 #
 # **Implemented array functions**
@@ -1794,7 +1795,7 @@ if __name__ == "__main__":
 # %%
 if __name__ == "__main__":
     #outer product
-    
+
 
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
@@ -1866,8 +1867,8 @@ if __name__ == "__main__":
 # ## Contraction with matrix along all indices
 
 # %%
-if __name__ == "__main__": 
-    
+if __name__ == "__main__":
+
     A = SymmetricTensor(rank = 3, dim=3)
     A[0,0,0] =1
     A[0,0,1] =-12
@@ -1884,22 +1885,22 @@ if __name__ == "__main__":
 # ## Contraction with list of SymmetricTensors
 
 # %%
-if __name__=="__main__": 
+if __name__=="__main__":
     dim = 4
     for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
         test_tensor = SymmetricTensor(rank =3, dim = dim)
         test_tensor['iii'] = np.random.rand(dim)
         test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
         test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
-        
+
         tensor_list = []
         chi_dense = np.zeros( (dim,)*3)
-        def get_random_symtensor_rank2(dim): 
+        def get_random_symtensor_rank2(dim):
             tensor = SymmetricTensor(rank=2, dim =dim)
             tensor['ii'] = np.random.rand(dim)
             tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
             return tensor
-        for i in range(dim): 
+        for i in range(dim):
             random_tensor = get_random_symtensor_rank2(dim)
             tensor_list += [random_tensor]
             chi_dense[i,:,:] = random_tensor.todense()
