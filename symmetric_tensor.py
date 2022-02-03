@@ -18,8 +18,9 @@
 # # Symmetric tensor class
 
 # %%
-from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 from __future__ import annotations
+
+from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
 from warnings import warn
 from ast import literal_eval
 import itertools
