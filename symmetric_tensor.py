@@ -793,7 +793,10 @@ class SymmetricTensor(Serializable):
                 σcls, pos = self._convert_dense_index(key)
                 vals = self._data[σcls]
                 return vals if np.isscalar(vals) else vals[pos]
-        elif isinstance(key, int):
+        elif self.rank==1 and isinstance(key,int): #special rules for vectors
+            vals = self._data[(1,)]
+            return vals if np.isscalar(vals) else vals[key]
+        elif self.rank >1 and isinstance(key, int):
             if self.dim ==1:
                 σcls, pos = self._convert_dense_index(key)
                 vals = self._data[σcls]
@@ -963,8 +966,17 @@ class SymmetricTensor(Serializable):
             if axes == 0:
                 return self.outer_product(other)
             elif axes == 1:
-                # note \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
-                return sum((self[i].outer_product(other[i]) for i in range(self.dim)),
+                # note: \sum_i A_jkl..mi B_inop..z = \sum_i A_ijkl..m B_inop..z for A, B symmetric
+                if other.rank == 1 and self.rank ==1:
+                    return np.dot(self['i'],other['i'])
+                elif other.rank ==1 and self.rank >1:
+                    return sum((self[i]*other[i] for i in range(self.dim)),
+                               start=SymmetricTensor(self.rank -1, self.dim))
+                elif other.rank >1 and self.rank ==1:
+                    return sum((self[i]*other[i] for i in range(self.dim)),
+                               start=SymmetricTensor(other.rank -1, self.dim))
+                else:
+                    return sum((self[i].outer_product(other[i]) for i in range(self.dim)),
                            start=SymmetricTensor(self.rank + other.rank - 2, self.dim))
             elif axes == 2:
                 if self.rank < 2 or other.rank < 2:
@@ -1052,18 +1064,29 @@ class SymmetricTensor(Serializable):
         for fixed i are, we can do a contraction along the first index.
         '''
 
-        assert n_times <= self.rank, f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}"
+        if not n_times <= self.rank:
+            raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
-            assert isinstance(list_entry, SymmetricTensor), "tensor:list entries must be instances of SymmetricTensor"
-
-        get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
-        indices = itertools.product(range(self.dim), repeat = n_times)
-        chi_rank = tensor_list[0].rank
-        C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
-        for idx in indices:
-            slice_idx = get_slice_index(idx, self.rank)
-            C += self[slice_idx].outer_product([tensor_list[i] for i in idx])
-        return C
+            if not isinstance(list_entry, SymmetricTensor):
+                raise  TypeError("tensor_list entries must be SymmetricTensors")
+        if self.rank ==1 and n_times ==1:
+            print()
+            return sum((tensor_list[i]*self[i] for i in range(self.dim)),
+                        start=SymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
+        else:
+            get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
+            indices = itertools.product(range(self.dim), repeat = n_times)
+            chi_rank = tensor_list[0].rank
+            C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
+            if n_times < self.rank:
+                for idx in indices:
+                    slice_idx = get_slice_index(idx, self.rank)
+                    C += self[slice_idx].outer_product([tensor_list[i] for i in idx])
+            else:
+                for idx in indices:
+                    slice_idx = get_slice_index(idx, self.rank)
+                    C += tensor_list[idx[0]].outer_product([ tensor_list[i] for i in idx[1:]])*self[slice_idx]
+            return C
 
     ## Array creation, copy, etc. ##
 
