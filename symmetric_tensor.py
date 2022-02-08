@@ -27,8 +27,9 @@ import itertools
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
 from pydantic import BaseModel
-
-
+from tqdm.auto import tqdm
+import time
+from mackelab_toolbox.utils import TimeThis
 import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, Array, DType
 import pytest
@@ -407,6 +408,9 @@ def index_iter(perm_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
             m = perm_class[0]
             for subidx in _subindex_iter(perm_class, dim, i, set()):
                 yield tuple(reversed(subidx + [i]*m))
+
+# %%
+
 
 
 # %% [markdown]
@@ -803,7 +807,6 @@ class SymmetricTensor(Serializable):
                 return vals if np.isscalar(vals) else vals[pos]
             elif self.dim >1:
                 B = SymmetricTensor(dim=self.dim, rank=self.rank-1)
-
                 def σcls_subset_with_i(self, i, J, σcls):
                     '''
                     Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
@@ -815,11 +818,14 @@ class SymmetricTensor(Serializable):
                     σcls_data = self._data[self.get_class_tuple(σcls)]
                     if isinstance(σcls_data, (list,np.ndarray)):
                         return [σcls_data[k] for k, K in enumerate(self.index_class_iter(σcls))
-                                                       if sorted((i, *J)) == sorted(K)]
+                                                        if sorted((i, *J)) == sorted(K)]
                     else:
                         return [σcls_data for k, K in enumerate(self.index_class_iter(σcls))
-                                                       if sorted((i, *J)) == sorted(K)]
+                                                        if sorted((i, *J)) == sorted(K)]
+                        
+                '''
                 for σbcls in B.perm_classes:
+                    
                     B[σbcls] = [np.mean(np.fromiter(
                                     itertools.chain.from_iterable( (
                                         σcls_subset_with_i(self, key, J, σacls)
@@ -827,7 +833,12 @@ class SymmetricTensor(Serializable):
                                     dtype=self.dtype))
                                 # Use fancy indexing to retrieve multiple values simultaneously
                                 # Averaging is done to symmetrize the array
-                                for j, J in enumerate(B.index_class_iter(σbcls))]
+                                for j, J in enumerate(B.index_class_iter(class_label=σbcls))]
+                    end_perm_cls = time.time()'''
+                    
+                for idx in B.index_class_iter(): 
+                    B[idx] = self[idx+(key,)]
+
                 return B
         else:
             raise KeyError(f"{key}")
@@ -1726,50 +1737,50 @@ if __name__ == "main":
 #
 # `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
 
-# %%
-if __name__ == "__main__":
-    A = SymmetricTensor(rank=2, dim=3)
-    B = SymmetricTensor(rank=2, dim=3)
-    with pytest.warns(UserWarning):
-        assert type(np.asarray(A)) is np.ndarray
-    # `like` argument is supported and avoids the conversion to dense array
-    with does_not_warn(UserWarning):
-        assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
+# %% [markdown]
+# if __name__ == "__main__":
+#     A = SymmetricTensor(rank=2, dim=3)
+#     B = SymmetricTensor(rank=2, dim=3)
+#     with pytest.warns(UserWarning):
+#         assert type(np.asarray(A)) is np.ndarray
+#     # `like` argument is supported and avoids the conversion to dense array
+#     with does_not_warn(UserWarning):
+#         assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
 
 # %% [markdown]
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
-    # %%
-    # Context manager works as expected…
-    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-    # …and returns the module to its clean state on exit…
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-    with pytest.warns(UserWarning):
-        assert type(np.asarray(A)) is np.ndarray
-    # …even when an error is raised within the context.
-    try:
-        with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-            raise ValueError
-    except ValueError:
-        pass
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+# %% [markdown]
+#     # Context manager works as expected…
+#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+#     # …and returns the module to its clean state on exit…
+#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+#     with pytest.warns(UserWarning):
+#         assert type(np.asarray(A)) is np.ndarray
+#     # …even when an error is raised within the context.
+#     try:
+#         with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+#             raise ValueError
+#     except ValueError:
+#         pass
+#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
 
 # %% [markdown]
 # Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
 
-    # %%
-    with does_not_warn(UserWarning):
-        np.einsum_path("ij,ik", A, B)
-        np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-
-    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-        with does_not_warn(UserWarning):
-            np.einsum_path("ij,ik", A, B)
-            np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+# %% [markdown]
+#     with does_not_warn(UserWarning):
+#         np.einsum_path("ij,ik", A, B)
+#         np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
+#
+#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+#         with does_not_warn(UserWarning):
+#             np.einsum_path("ij,ik", A, B)
+#             np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
 
 # %% [markdown]
 # ### WIP
@@ -1959,3 +1970,284 @@ if __name__ == "__main__":
     #test copying
     C = A.copy()
     assert C.is_equal(A)
+
+# %% [markdown]
+# ## Slownes off slicing
+# Some tests to see where slowness could come from:
+
+# %%
+if __name__=="__main__":
+    def σcls_subset_with_i(self, i, J, σcls):
+        '''
+        Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
+        This function extracts all entries in the current tensor, which are compatible with the σcls+i, where i is an integer, and
+        the other entries come from J.
+        For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index:
+        (0,0,1)
+        '''
+        σcls_data = self._data[self.get_class_tuple(σcls)]
+        if isinstance(σcls_data, (list,np.ndarray)):
+            return [self[J+(i,)]] # this entry is actually unique, so the below, which we used before doesn't add anything relevant
+            #return [σcls_data[k] for k, K in enumerate(self.index_class_iter(σcls))
+             #                               if sorted((i, *J)) == sorted(K)]
+        else:
+            return [σcls_data]
+                        
+    for dim in [10,20,30]:
+        for rank in [2,3]:
+            vect =SymmetricTensor(rank=1, dim=dim)
+            vect['i'] = np.random.rand(dim)
+            A = vect.outer_product([vect,]*(rank-1))
+            B = SymmetricTensor(rank=rank-1, dim=dim)
+            key =0
+            print(f'dim ={dim}, rank={rank}')
+            with TimeThis('loop1'):
+                for idx in B.index_class_iter(): 
+                    B[idx] = A[idx+(key,)]
+            with TimeThis('bigloop'):
+                for σbcls in B.perm_classes:
+                    B[σbcls] = [np.mean(np.fromiter(
+                                        itertools.chain.from_iterable( (
+                                        σcls_subset_with_i(A, key, J, σacls)
+                                for σacls in A.perm_classes if A.is_subσcls(σacls,σbcls) ) ),
+                                    dtype=A.dtype))
+                                            # Use fancy indexing to retrieve multiple values simultaneously
+                                            # Averaging is done to symmetrize the array
+                                for j, J in enumerate(B.index_class_iter(class_label=σbcls))]
+
+            print('\n')
+    
+
+
+
+# %% [markdown]
+# ### Inprovements: Possibility 1: Work out indexing by hand
+
+# %%
+def _sort_idx_by_multiplicity(index: Tuple[int]) -> Tuple[int]:
+    i_repeats = ((i, len(list(grouper))) for i, grouper in
+                 itertools.groupby(sorted(index)))
+    return sum(((i,) for i, repeats in
+                sorted(i_repeats, key = lambda tup: tup[1], reverse=True)),
+               start=())
+
+
+# %%
+from collections import Counter
+from scipy.special import binom, factorial
+
+def sum_a_to_b(a,b): 
+    '''
+    sum of all integers between a and b: 
+    \sum_{i=a}^{b}
+    '''
+    return int( (b*(b+1)-a*(a-1))/2 )
+
+
+def index_pos( idx: Tuple['int'], dim : int, rank : int):
+    class_tuple = _get_perm_class(idx)
+    if len(class_tuple ) == 1 or rank ==1: # Diagonal terms
+        return class_tuple, idx[0]
+    elif len(class_tuple )==2: #two seperate indices
+        if class_tuple[0]==class_tuple[1]: # indices repeated same number of times, like iijj, or e.g. 0011,0022,1122
+            i = min(idx)
+            j = max(idx)
+            assert i != j 
+            if i==1: 
+                return class_tuple, i*(dim-1) +j-i-1
+            elif i==0:
+                return class_tuple, j-1
+            else: 
+                #compute sum_k=0^{i-1} (dim-1-k) = i(dim-1) -sum_k=1^{i-1} k
+                #using sum_k=1^{i-1} k = 1/2 (i-1)i
+                return class_tuple,i*(dim-1) -int(i*(i-1)/2) +j-i-1
+        else: 
+            i = min(idx)
+            j = max(idx)
+            num_i = idx.count(i)
+            if num_i == max(class_tuple):
+                if i>0: 
+                    return class_tuple, i*(dim-1) + j-1 
+                else: 
+                    return class_tuple, j-1
+            else:
+                if j>0: 
+                    if j<i:
+                        return class_tuple, j*(dim-1) + i 
+                    else:
+                        return class_tuple, j*(dim-1) + i 
+                else: 
+                    return class_tuple, i-1
+    elif len(class_tuple )>= 3: 
+        #three seperate indices or more
+        if len(np.unique(class_tuple))== 1 : #all multiplicities the same, e.g. ijkl or iijjkkll 
+            indices_sorted = sorted(set(idx))
+            assert len(indices_sorted)== len(class_tuple) #number of indices
+            result = 0 
+            for k in range(len(indices_sorted)-1): 
+                i = indices_sorted[k]
+                j = indices_sorted[k+1]
+                entries_left = len(indices_sorted)-k-1
+                #exclude stuff like 01 or i,i+1
+                if i == k and j ==k+1: 
+                    continue
+                else:
+                    if k==0:
+                        for l in range(0,i): 
+                            result += int(binom(dim-l-1,entries_left))
+                    for l in range(i+1,j): 
+                        result += int(factorial(dim-l-1)/factorial(dim-l-entries_left))
+            return class_tuple, result
+        
+        elif len(np.unique(class_tuple))== len(class_tuple): #all multiplicities different
+            print('all multiplicities different')
+            indices_sorted = _sort_idx_by_multiplicity(idx)
+            #indices_sorted = sorted(set(idx))
+            assert len(indices_sorted)== len(class_tuple) #number of indices
+            result = 0 
+            for k in range(len(indices_sorted)-1): 
+                i = indices_sorted[k]
+                j = indices_sorted[k+1]
+                entries_left = len(indices_sorted)-k-1
+                result += i*np.power(dim-1-k,entries_left)
+                #for l in range(i+1,j): 
+                 #   result += np.power(dim-1,entries_left)
+            return class_tuple, result
+
+
+# %%
+# testing the above (might take a while)
+
+# %%
+if __name__ == "__main__":
+    dim = 10
+    rank = 4
+    vect =SymmetricTensor(rank=1, dim=dim)
+    vect['i'] = np.random.rand(dim)
+    A = vect.outer_product([vect,]*(rank-1))
+    for i in range(dim): 
+        idx = (i,)*dim
+        perm_cls, pos = A._convert_dense_index(idx)
+        perm_cls1, pos1 = index_pos( idx, dim, rank)
+        assert pos == pos1
+        assert (perm_cls1 ==perm_cls)
+        for j in range(dim):
+            idx1 = (i,) +(j,)*(rank-1)
+            idx2 = (i,)*2 +(j,)*(rank-2)
+            idx3 = (j,)*(rank-1)+(i,)
+            idx4 = (j,)*(rank-2)+(i,)*2 
+            for index in [idx1,idx2,idx3,idx4]: 
+                perm_cls, pos = A._convert_dense_index(index)
+                perm_cls1, pos1 = index_pos( index, dim, rank)
+                assert pos == pos1
+                assert (perm_cls1 ==perm_cls)
+    rank = 3     
+    B = vect.outer_product([vect,]*(rank-1))
+    for i in range(dim): 
+        idx = (i,)*dim
+        perm_cls, pos = A._convert_dense_index(idx)
+        perm_cls1, pos1 = index_pos( idx, dim, rank)
+        assert pos == pos1
+        assert (perm_cls1 ==perm_cls)
+        for j in range(dim):
+            idx1 = (i,) +(j,)*(rank-1)
+            idx2 = (i,)*2 +(j,)*(rank-2)
+            idx3 = (j,)*(rank-1)+(i,)
+            idx4 = (j,)*(rank-2)+(i,)*2 
+            for index in [idx1,idx2,idx3,idx4]: 
+                perm_cls, pos = A._convert_dense_index(index)
+                perm_cls1, pos1 = index_pos( index, dim, rank)
+                assert pos == pos1
+                assert (perm_cls1 ==perm_cls)
+            for k in range(dim):
+                if len(sorted(set((i,j,k))))==3:
+                    idx1 = (i,) +(k,) +(j,)*(rank-2)
+                    idx2 = (i,) +(j,)*(rank-2) +(k,)
+                    idx3 = (j,)*(rank-2)+(i,)+(k,)
+                    idx4 = (j,)*(rank-2)+(k,)+(i,)
+                    for index in [idx1,idx2,idx3,idx4]: 
+                        perm_cls, pos = B._convert_dense_index(index)
+                        perm_cls1, pos1 = index_pos( index, dim, rank)
+                        assert pos == pos1
+                        assert (perm_cls1 ==perm_cls)
+                        
+    rank = 6    
+    C = vect.outer_product([vect,]*(rank-1))
+    
+    idx1 = (1,1,2,2,3,3)
+    idx2 = (0,0,2,2,5,5)
+    idx3 = (4,4,2,2,3,3)
+    idx4 = (0,0,8,8,5,5)
+    for index in [idx1,idx2,idx3,idx4]: 
+        perm_cls, pos = C._convert_dense_index(index)
+        perm_cls1, pos1 = index_pos( index, dim, rank)
+        assert pos == pos1
+        assert (perm_cls1 ==perm_cls)
+    
+    
+
+# %%
+if __name__ == "__main__":
+    idx1 = (1,2,2,3,3,3)
+    idx2 = (0,2,2,2,5,5)
+    idx3 = (4,3,2,2,3,3)
+    idx4 = (0,8,8,8,5,5)
+    for index in [idx1,idx2,idx3,idx4]: 
+        perm_cls, pos = C._convert_dense_index(index)
+        perm_cls1, pos1 = index_pos( index, dim, rank)
+        print(index, pos, pos1)
+        assert pos == pos1
+        assert (perm_cls1 ==perm_cls)
+
+
+# %% [markdown]
+# ### Possibility two: Make index -> listindex dict
+
+# %%
+def make_idx_pos_dict(tensor, perm_class =None ):
+    idx_pos_dict = {}
+    if perm_class == None: 
+        for perm_class in tensor.perm_classes: 
+             idx_pos_dict[perm_class] = make_idx_pos_dict(tensor, perm_class = perm_class )
+    else:
+        for i,idx in enumerate(tensor.index_class_iter(perm_class)): 
+            #could also convert index to string for faster evaluation ( something like: (1,1,4,5,10) -> '1_1_4_5_10'
+            idx_pos_dict[idx] = i
+    return idx_pos_dict
+
+
+def get_pos(tensor, idx, pos_dict): 
+    class_str = tensor.get_perm_class(idx)
+    pos = pos_dict[ class_str][idx]
+    return class_str,pos
+
+
+# %%
+#some preliminary testing
+
+# %%
+if __name__ == "__main__":
+    dim = 50
+    rank = 3
+    vect =SymmetricTensor(rank=1, dim=dim)
+    vect['i'] = np.random.rand(dim)
+    A = vect.outer_product([vect,]*(rank-1)) #this is slow, because it uses our inefficient indexing technique
+    A =SymmetricTensor(rank=rank, dim=dim)
+
+    # %%
+    with TimeThis('making pos dict'):
+        pos_dict = make_idx_pos_dict(A) #slow part
+
+    # %%
+    index = (0,4,6)
+    with TimeThis('get pos conventional'):#inefficient indexing technique
+        perm_cls, pos = A._convert_dense_index(index)
+    with TimeThis('get pos new'): #hopefully faster
+        perm_cls1, pos1 = get_pos(A, index, pos_dict)
+
+    # %%
+    assert pos == pos1
+    #assert (perm_cls1 ==perm_cls)
+
+    # %%
+    A.get_perm_class((0,0,1,1,1,3,3))
