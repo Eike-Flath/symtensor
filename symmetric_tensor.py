@@ -491,13 +491,15 @@ def partition_list_into_two(lst, size1, size2):
     '''
     return all pairs of sublists of lst, where the order of the elements in the sublists is ignored.
     '''
-    assert size1 +size2 == len(lst), 'sizes must sum to length of lst'
+    assert size1 + size2 == len(lst), 'sizes must sum to length of lst'
 
-    indices = range(len(lst))
-    indices_1 = list(itertools.combinations(indices, size1))
-    indices_2 = [list(set(indices).difference(set(idcs1))) for idcs1 in indices_1]
-    lsts_1 = [[lst[i] for i in idcs1] for idcs1 in indices_1]
-    lsts_2 = [[lst[i] for i in idcs2] for idcs2 in indices_2]
+    arr = np.array(lst)  # To allow fancy indexing
+    indices = set(range(len(lst)))
+    indices_1 = [set(idcs) for idcs in itertools.combinations(indices, size1)]
+    indices_2 = (indices - idcs1 for idcs1 in indices_1)  # Since we only iterate this once, we can use a generator.
+    lsts_1 = [arr[list(idcs1)] for idcs1 in indices_1]
+    lsts_2 = [arr[list(idcs2)] for idcs2 in indices_2]
+
     return lsts_1, lsts_2
 
 
@@ -2041,7 +2043,7 @@ def sum_a_to_b(a,b):
     sum of all integers between a and b: 
     \sum_{i=a}^{b}
     '''
-    return int( (b*(b+1)-a*(a-1))/2 )
+    return  (b*(b+1)-a*(a-1))//2 
 
 
 def index_pos( idx: Tuple['int'], dim : int, rank : int):
@@ -2060,7 +2062,7 @@ def index_pos( idx: Tuple['int'], dim : int, rank : int):
             else: 
                 #compute sum_k=0^{i-1} (dim-1-k) = i(dim-1) -sum_k=1^{i-1} k
                 #using sum_k=1^{i-1} k = 1/2 (i-1)i
-                return class_tuple,i*(dim-1) -int(i*(i-1)/2) +j-i-1
+                return class_tuple,i*(dim-1) -(i*(i-1))//2 +j-i-1
         else: 
             i = min(idx)
             j = max(idx)
@@ -2118,7 +2120,6 @@ def index_pos( idx: Tuple['int'], dim : int, rank : int):
 # %%
 # testing the above (might take a while)
 
-# %%
 if __name__ == "__main__":
     dim = 10
     rank = 4
@@ -2227,7 +2228,7 @@ def get_pos(tensor, idx, pos_dict):
 
 # %%
 if __name__ == "__main__":
-    dim = 50
+    dim = 10
     rank = 3
     vect =SymmetricTensor(rank=1, dim=dim)
     vect['i'] = np.random.rand(dim)
