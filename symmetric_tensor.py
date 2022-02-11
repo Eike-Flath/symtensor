@@ -409,9 +409,6 @@ def index_iter(perm_class: Tuple[int], dim: int) -> Generator[Tuple[int]]:
             for subidx in _subindex_iter(perm_class, dim, i, set()):
                 yield tuple(reversed(subidx + [i]*m))
 
-# %%
-
-
 
 # %% [markdown]
 # ### Indexing utilities
@@ -469,6 +466,63 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
     return sum(((i,)*repeats for i, repeats in
                 sorted(i_repeats, key = lambda tup: tup[1], reverse=True)),
                start=())
+
+
+# %% [markdown]
+# `_perm_classes` iterates over all permutation classes of a tensor in their private representation.
+# Example:
+# `_perm_classes(5)`
+# yields 
+# ```
+# (5,)
+# (4, 1)
+# (3, 2)
+# (3, 1, 1)
+# (2, 2, 1)
+# (2, 1, 1, 1)
+# (1, 1, 1, 1, 1)
+#
+# ```
+
+# %%
+def _perm_classes(rank): 
+    return (tuple(repeats)
+                      for repeats in _indexcounts(rank, rank, rank))
+
+
+# %% [markdown]
+# #### Fast Indexing
+#
+# We need to be able to retrieve entries in a SymmetricTensor fast. Given an index (i,j,k,l,m), it might be fast to find the correct permulation class, but not where in data_[permutation_class] this index is stored. 
+# However, python is fast at finding dictionary entries, therefore we store the location of a particular index in a dictionary. 
+
+# %%
+from collections import UserDict
+
+class PosRegistry(UserDict):  #  TODO?: Make singleton ?
+    @staticmethod
+    def create_pos_dict(rank, dim):
+        pos_dict ={}
+        for perm_class in _perm_classes(rank): 
+            idx_pos_dict = {}
+            for i,idx in enumerate(index_iter(perm_class,dim)): 
+                #could also convert index to string for faster evaluation ( something like: (1,1,4,5,10) -> '1_1_4_5_10'
+                idx_pos_dict[idx] = i
+            pos_dict[perm_class] = idx_pos_dict
+        return pos_dict
+        
+    def __getitem__(self, key):
+        try:
+            return self.data[key]
+        except KeyError:
+            if len(key) != 2:
+                raise KeyError(f"received {key}, but position dict only takes keys of length two, key = (rank,dimension)")
+            pos_dict = self.create_pos_dict(*key)
+            self.data[key] = pos_dict
+            return pos_dict
+        
+        
+pos_dict = PosRegistry()
 
 
 # %% [markdown]
@@ -732,9 +786,8 @@ class SymmetricTensor(Serializable):
             # Use the standardized key so that it matches values returned by index_iter
             key = _get_index_representative(key)
             σcls = _get_perm_class(key)
-            for i, idx in enumerate(index_iter(σcls, self.dim)):
-                if key == idx:
-                    return σcls, i
+            i = pos_dict[(self.rank,self.dim)][σcls][key]
+            return σcls, i
             if len(key) < self.rank:
                 raise IndexError(
                     "Partial indexing (where the number of indices is less "
@@ -752,10 +805,6 @@ class SymmetricTensor(Serializable):
                     "Partial indexing (where the number of indices is less "
                     "than the rank) is inefficient with a SymmetricTensor and "
                     "not currently supported.")
-        elif isinstance(key, slice):
-            raise NotImplementedError(
-                "Indexing with slices is not currently implemented. It is "
-                "not trivial but could be done.")
         else:
             raise TypeError(f"Unrecognized index type '{type(key)}' (value: {key}).\n"
                             f"{type(self).__name__} only supports strings "
@@ -1974,7 +2023,7 @@ if __name__ == "__main__":
     assert C.is_equal(A)
 
 # %% [markdown]
-# ## Slownes off slicing
+# ## Slownes of slicing
 # Some tests to see where slowness could come from:
 
 # %%
@@ -1995,8 +2044,8 @@ if __name__=="__main__":
         else:
             return [σcls_data]
                         
-    for dim in [10,20,30]:
-        for rank in [2,3]:
+    for dim in [10,20,30,50]:
+        for rank in [2,3,4,5]:
             vect =SymmetricTensor(rank=1, dim=dim)
             vect['i'] = np.random.rand(dim)
             A = vect.outer_product([vect,]*(rank-1))
@@ -2021,234 +2070,3 @@ if __name__=="__main__":
     
 
 
-
-# %% [markdown]
-# ### Inprovements: Possibility 1: Work out indexing by hand
-
-# %%
-def _sort_idx_by_multiplicity(index: Tuple[int]) -> Tuple[int]:
-    i_repeats = ((i, len(list(grouper))) for i, grouper in
-                 itertools.groupby(sorted(index)))
-    return sum(((i,) for i, repeats in
-                sorted(i_repeats, key = lambda tup: tup[1], reverse=True)),
-               start=())
-
-
-# %%
-from collections import Counter
-from scipy.special import binom, factorial
-
-def sum_a_to_b(a,b): 
-    '''
-    sum of all integers between a and b: 
-    \sum_{i=a}^{b}
-    '''
-    return  (b*(b+1)-a*(a-1))//2 
-
-
-def index_pos( idx: Tuple['int'], dim : int, rank : int):
-    class_tuple = _get_perm_class(idx)
-    if len(class_tuple ) == 1 or rank ==1: # Diagonal terms
-        return class_tuple, idx[0]
-    elif len(class_tuple )==2: #two seperate indices
-        if class_tuple[0]==class_tuple[1]: # indices repeated same number of times, like iijj, or e.g. 0011,0022,1122
-            i = min(idx)
-            j = max(idx)
-            assert i != j 
-            if i==1: 
-                return class_tuple, i*(dim-1) +j-i-1
-            elif i==0:
-                return class_tuple, j-1
-            else: 
-                #compute sum_k=0^{i-1} (dim-1-k) = i(dim-1) -sum_k=1^{i-1} k
-                #using sum_k=1^{i-1} k = 1/2 (i-1)i
-                return class_tuple,i*(dim-1) -(i*(i-1))//2 +j-i-1
-        else: 
-            i = min(idx)
-            j = max(idx)
-            num_i = idx.count(i)
-            if num_i == max(class_tuple):
-                if i>0: 
-                    return class_tuple, i*(dim-1) + j-1 
-                else: 
-                    return class_tuple, j-1
-            else:
-                if j>0: 
-                    if j<i:
-                        return class_tuple, j*(dim-1) + i 
-                    else:
-                        return class_tuple, j*(dim-1) + i 
-                else: 
-                    return class_tuple, i-1
-    elif len(class_tuple )>= 3: 
-        #three seperate indices or more
-        if len(np.unique(class_tuple))== 1 : #all multiplicities the same, e.g. ijkl or iijjkkll 
-            indices_sorted = sorted(set(idx))
-            assert len(indices_sorted)== len(class_tuple) #number of indices
-            result = 0 
-            for k in range(len(indices_sorted)-1): 
-                i = indices_sorted[k]
-                j = indices_sorted[k+1]
-                entries_left = len(indices_sorted)-k-1
-                #exclude stuff like 01 or i,i+1
-                if i == k and j ==k+1: 
-                    continue
-                else:
-                    if k==0:
-                        for l in range(0,i): 
-                            result += int(binom(dim-l-1,entries_left))
-                    for l in range(i+1,j): 
-                        result += int(factorial(dim-l-1)/factorial(dim-l-entries_left))
-            return class_tuple, result
-        
-        elif len(np.unique(class_tuple))== len(class_tuple): #all multiplicities different
-            print('all multiplicities different')
-            indices_sorted = _sort_idx_by_multiplicity(idx)
-            #indices_sorted = sorted(set(idx))
-            assert len(indices_sorted)== len(class_tuple) #number of indices
-            result = 0 
-            for k in range(len(indices_sorted)-1): 
-                i = indices_sorted[k]
-                j = indices_sorted[k+1]
-                entries_left = len(indices_sorted)-k-1
-                result += i*np.power(dim-1-k,entries_left)
-                #for l in range(i+1,j): 
-                 #   result += np.power(dim-1,entries_left)
-            return class_tuple, result
-
-
-# %%
-# testing the above (might take a while)
-
-if __name__ == "__main__":
-    dim = 10
-    rank = 4
-    vect =SymmetricTensor(rank=1, dim=dim)
-    vect['i'] = np.random.rand(dim)
-    A = vect.outer_product([vect,]*(rank-1))
-    for i in range(dim): 
-        idx = (i,)*dim
-        perm_cls, pos = A._convert_dense_index(idx)
-        perm_cls1, pos1 = index_pos( idx, dim, rank)
-        assert pos == pos1
-        assert (perm_cls1 ==perm_cls)
-        for j in range(dim):
-            idx1 = (i,) +(j,)*(rank-1)
-            idx2 = (i,)*2 +(j,)*(rank-2)
-            idx3 = (j,)*(rank-1)+(i,)
-            idx4 = (j,)*(rank-2)+(i,)*2 
-            for index in [idx1,idx2,idx3,idx4]: 
-                perm_cls, pos = A._convert_dense_index(index)
-                perm_cls1, pos1 = index_pos( index, dim, rank)
-                assert pos == pos1
-                assert (perm_cls1 ==perm_cls)
-    rank = 3     
-    B = vect.outer_product([vect,]*(rank-1))
-    for i in range(dim): 
-        idx = (i,)*dim
-        perm_cls, pos = A._convert_dense_index(idx)
-        perm_cls1, pos1 = index_pos( idx, dim, rank)
-        assert pos == pos1
-        assert (perm_cls1 ==perm_cls)
-        for j in range(dim):
-            idx1 = (i,) +(j,)*(rank-1)
-            idx2 = (i,)*2 +(j,)*(rank-2)
-            idx3 = (j,)*(rank-1)+(i,)
-            idx4 = (j,)*(rank-2)+(i,)*2 
-            for index in [idx1,idx2,idx3,idx4]: 
-                perm_cls, pos = A._convert_dense_index(index)
-                perm_cls1, pos1 = index_pos( index, dim, rank)
-                assert pos == pos1
-                assert (perm_cls1 ==perm_cls)
-            for k in range(dim):
-                if len(sorted(set((i,j,k))))==3:
-                    idx1 = (i,) +(k,) +(j,)*(rank-2)
-                    idx2 = (i,) +(j,)*(rank-2) +(k,)
-                    idx3 = (j,)*(rank-2)+(i,)+(k,)
-                    idx4 = (j,)*(rank-2)+(k,)+(i,)
-                    for index in [idx1,idx2,idx3,idx4]: 
-                        perm_cls, pos = B._convert_dense_index(index)
-                        perm_cls1, pos1 = index_pos( index, dim, rank)
-                        assert pos == pos1
-                        assert (perm_cls1 ==perm_cls)
-                        
-    rank = 6    
-    C = vect.outer_product([vect,]*(rank-1))
-    
-    idx1 = (1,1,2,2,3,3)
-    idx2 = (0,0,2,2,5,5)
-    idx3 = (4,4,2,2,3,3)
-    idx4 = (0,0,8,8,5,5)
-    for index in [idx1,idx2,idx3,idx4]: 
-        perm_cls, pos = C._convert_dense_index(index)
-        perm_cls1, pos1 = index_pos( index, dim, rank)
-        assert pos == pos1
-        assert (perm_cls1 ==perm_cls)
-    
-    
-
-# %%
-if __name__ == "__main__":
-    idx1 = (1,2,2,3,3,3)
-    idx2 = (0,2,2,2,5,5)
-    idx3 = (4,3,2,2,3,3)
-    idx4 = (0,8,8,8,5,5)
-    for index in [idx1,idx2,idx3,idx4]: 
-        perm_cls, pos = C._convert_dense_index(index)
-        perm_cls1, pos1 = index_pos( index, dim, rank)
-        print(index, pos, pos1)
-        assert pos == pos1
-        assert (perm_cls1 ==perm_cls)
-
-
-# %% [markdown]
-# ### Possibility two: Make index -> listindex dict
-
-# %%
-def make_idx_pos_dict(tensor, perm_class =None ):
-    idx_pos_dict = {}
-    if perm_class == None: 
-        for perm_class in tensor.perm_classes: 
-             idx_pos_dict[perm_class] = make_idx_pos_dict(tensor, perm_class = perm_class )
-    else:
-        for i,idx in enumerate(tensor.index_class_iter(perm_class)): 
-            #could also convert index to string for faster evaluation ( something like: (1,1,4,5,10) -> '1_1_4_5_10'
-            idx_pos_dict[idx] = i
-    return idx_pos_dict
-
-
-def get_pos(tensor, idx, pos_dict): 
-    class_str = tensor.get_perm_class(idx)
-    pos = pos_dict[ class_str][idx]
-    return class_str,pos
-
-
-# %%
-#some preliminary testing
-
-# %%
-if __name__ == "__main__":
-    dim = 10
-    rank = 3
-    vect =SymmetricTensor(rank=1, dim=dim)
-    vect['i'] = np.random.rand(dim)
-    A = vect.outer_product([vect,]*(rank-1)) #this is slow, because it uses our inefficient indexing technique
-    A =SymmetricTensor(rank=rank, dim=dim)
-
-    # %%
-    with TimeThis('making pos dict'):
-        pos_dict = make_idx_pos_dict(A) #slow part
-
-    # %%
-    index = (0,4,6)
-    with TimeThis('get pos conventional'):#inefficient indexing technique
-        perm_cls, pos = A._convert_dense_index(index)
-    with TimeThis('get pos new'): #hopefully faster
-        perm_cls1, pos1 = get_pos(A, index, pos_dict)
-
-    # %%
-    assert pos == pos1
-    #assert (perm_cls1 ==perm_cls)
-
-    # %%
-    A.get_perm_class((0,0,1,1,1,3,3))
