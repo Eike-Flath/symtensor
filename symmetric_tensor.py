@@ -90,6 +90,8 @@ __all__ = ["SymmetricTensor"]
 #
 # I anticipate that a lot of the work with `SymmetricTensor` will revolve around building different iterators for the tensor components (per row, per column, etc.). Most features we will need can likely be written a few simple lines once we have an appropriate iterator.
 
+# %%
+
 # %% [markdown]
 # ### Notation & conceptual design
 #
@@ -472,7 +474,7 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # `_perm_classes` iterates over all permutation classes of a tensor in their private representation.
 # Example:
 # `_perm_classes(5)`
-# yields 
+# yields
 # ```
 # (5,)
 # (4, 1)
@@ -485,7 +487,7 @@ def _get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # ```
 
 # %%
-def _perm_classes(rank): 
+def _perm_classes(rank):
     return (tuple(repeats)
                       for repeats in _indexcounts(rank, rank, rank))
 
@@ -493,8 +495,8 @@ def _perm_classes(rank):
 # %% [markdown]
 # #### Fast Indexing
 #
-# We need to be able to retrieve entries in a SymmetricTensor fast. Given an index (i,j,k,l,m), it might be fast to find the correct permulation class, but not where in data_[permutation_class] this index is stored. 
-# However, python is fast at finding dictionary entries, therefore we store the location of a particular index in a dictionary. 
+# We need to be able to retrieve entries in a SymmetricTensor fast. Given an index (i,j,k,l,m), it might be fast to find the correct permulation class, but not where in data_[permutation_class] this index is stored.
+# However, python is fast at finding dictionary entries, therefore we store the location of a particular index in a dictionary.
 
 # %%
 from collections import UserDict
@@ -503,14 +505,14 @@ class PosRegistry(UserDict):  #  TODO?: Make singleton ?
     @staticmethod
     def create_pos_dict(rank, dim):
         pos_dict ={}
-        for perm_class in _perm_classes(rank): 
+        for perm_class in _perm_classes(rank):
             idx_pos_dict = {}
-            for i,idx in enumerate(index_iter(perm_class,dim)): 
+            for i,idx in enumerate(index_iter(perm_class,dim)):
                 #could also convert index to string for faster evaluation ( something like: (1,1,4,5,10) -> '1_1_4_5_10'
                 idx_pos_dict[idx] = i
             pos_dict[perm_class] = idx_pos_dict
         return pos_dict
-        
+
     def __getitem__(self, key):
         try:
             return self.data[key]
@@ -520,8 +522,8 @@ class PosRegistry(UserDict):  #  TODO?: Make singleton ?
             pos_dict = self.create_pos_dict(*key)
             self.data[key] = pos_dict
             return pos_dict
-        
-        
+
+
 pos_dict = PosRegistry()
 
 
@@ -551,10 +553,10 @@ def partition_list_into_two(lst, size1, size2):
     indices = set(range(len(lst)))
     indices_1 = [set(idcs) for idcs in itertools.combinations(indices, size1)]
     indices_2 = (indices - idcs1 for idcs1 in indices_1)  # Since we only iterate this once, we can use a generator.
-    lsts_1 = [arr[list(idcs1)] for idcs1 in indices_1]
-    lsts_2 = [arr[list(idcs2)] for idcs2 in indices_2]
+    lsts_1 = (arr[list(idcs1)] for idcs1 in indices_1)
+    lsts_2 = (arr[list(idcs2)] for idcs2 in indices_2)
 
-    return lsts_1, lsts_2
+    return lsts_1, lsts_2, len(indices_1)
 
 
 # %% [markdown]
@@ -827,7 +829,7 @@ class SymmetricTensor(Serializable):
 
         elif isinstance(key, tuple):
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
-                indices_fixed = [i for i in key if isinstance(i,int)]
+                indices_fixed = tuple(i for i in key if isinstance(i,int))
                 slices = [i for i in key if isinstance(i,slice)]
                 #Check for subslicing
                 subslicing = False
@@ -839,15 +841,20 @@ class SymmetricTensor(Serializable):
                                                   "[i_1,...,i_n,:,...,:] with i_1,..., i_n all integers are allowed.")
 
                 if not subslicing:
-                    C = self.copy()
-                    for i in indices_fixed:
-                        C = C[i]
+                    new_rank = self.rank -len(indices_fixed)
+                    C = SymmetricTensor(rank = new_rank, dim = self.dim)
+                    for idx in C.index_class_iter():
+                        C[idx] = self[idx +indices_fixed]
                     return C
 
             else:
-                σcls, pos = self._convert_dense_index(key)
+                σcls = _get_perm_class(key)
                 vals = self._data[σcls]
-                return vals if np.isscalar(vals) else vals[pos]
+                if np.ndim(vals) == 0:
+                    return vals
+                else:
+                    σcls, pos = self._convert_dense_index(key)
+                    return vals[pos]
         elif self.rank==1 and isinstance(key,int): #special rules for vectors
             vals = self._data[(1,)]
             return vals if np.isscalar(vals) else vals[key]
@@ -857,37 +864,8 @@ class SymmetricTensor(Serializable):
                 vals = self._data[σcls]
                 return vals if np.isscalar(vals) else vals[pos]
             elif self.dim >1:
-                B = SymmetricTensor(dim=self.dim, rank=self.rank-1)
-                def σcls_subset_with_i(self, i, J, σcls):
-                    '''
-                    Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
-                    This function extracts all entries in the current tensor, which are compatible with the σcls+i, where i is an integer, and
-                    the other entries come from J.
-                    For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index:
-                    (0,0,1)
-                    '''
-                    σcls_data = self._data[self.get_class_tuple(σcls)]
-                    if isinstance(σcls_data, (list,np.ndarray)):
-                        return [σcls_data[k] for k, K in enumerate(self.index_class_iter(σcls))
-                                                        if sorted((i, *J)) == sorted(K)]
-                    else:
-                        return [σcls_data for k, K in enumerate(self.index_class_iter(σcls))
-                                                        if sorted((i, *J)) == sorted(K)]
-                        
-                '''
-                for σbcls in B.perm_classes:
-                    
-                    B[σbcls] = [np.mean(np.fromiter(
-                                    itertools.chain.from_iterable( (
-                                        σcls_subset_with_i(self, key, J, σacls)
-                                        for σacls in self.perm_classes if self.is_subσcls(σacls,σbcls) ) ),
-                                    dtype=self.dtype))
-                                # Use fancy indexing to retrieve multiple values simultaneously
-                                # Averaging is done to symmetrize the array
-                                for j, J in enumerate(B.index_class_iter(class_label=σbcls))]
-                    end_perm_cls = time.time()'''
-                    
-                for idx in B.index_class_iter(): 
+                B = SymmetricTensor(rank = self.rank-1, dim = self.dim)
+                for idx in B.index_class_iter():
                     B[idx] = self[idx+(key,)]
 
                 return B
@@ -900,7 +878,7 @@ class SymmetricTensor(Serializable):
             if repeats not in self._data:
                 raise KeyError(f"'{key}' does not match any permutation class.\n"
                                f"Permutation classes: {self.perm_classes}.")
-            if np.isscalar(value):
+            if np.ndim(value) == 0:
                 self._data[repeats] = value
             else:
                 if len(value) != _get_perm_class_size(repeats, self.dim):
@@ -914,10 +892,10 @@ class SymmetricTensor(Serializable):
         else:
             σcls, pos = self._convert_dense_index(key)
             v = self._data[σcls]
-            if np.isscalar(v):
+            if np.ndim(v) == 0:
                 if pos == slice(None):  # Equivalent to setting the whole permutation class
                     self._data[σcls] = value
-                elif np.isscalar(value) and v == value:
+                elif np.ndim(value) == 0 and v == value:
                     # Value has not changed; no need to expand
                     pass
                 else:
@@ -1005,8 +983,8 @@ class SymmetricTensor(Serializable):
             else:
                 C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
                 for I in C.index_class_iter():
-                    list1, list2 = partition_list_into_two(I, self.rank, other.rank)
-                    C[I] = np.mean( [ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2)] ).item()
+                    list1, list2, L = partition_list_into_two(I, self.rank, other.rank)
+                    C[I] = sum( ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2) )/L
                 return C
         elif isinstance(other, list):
             C = self.copy()
@@ -1110,7 +1088,7 @@ class SymmetricTensor(Serializable):
 
         return C
 
-    def contract_tensor_list(self, tensor_list, n_times =1):
+    def contract_tensor_list(self, tensor_list, n_times =1, rule = 'second_half'):
         '''
         Do the following contraction:
 
@@ -1125,19 +1103,22 @@ class SymmetricTensor(Serializable):
         Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,...
         for fixed i are, we can do a contraction along the first index.
         '''
-
         if not n_times <= self.rank:
             raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
             if not isinstance(list_entry, SymmetricTensor):
                 raise  TypeError("tensor_list entries must be SymmetricTensors")
         if self.rank ==1 and n_times ==1:
-            print()
             return sum((tensor_list[i]*self[i] for i in range(self.dim)),
                         start=SymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
         else:
             get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
-            indices = itertools.product(range(self.dim), repeat = n_times)
+            if rule == 'second_half':
+                first_half = int(np.ceil(self.dim/2.0))
+                indices_for_contraction = range(first_half, self.dim)
+                indices = itertools.product( indices_for_contraction, repeat = n_times)
+            else:
+                indices = itertools.product(range(self.dim), repeat = n_times)
             chi_rank = tensor_list[0].rank
             C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
             if n_times < self.rank:
@@ -1881,7 +1862,7 @@ if __name__ == "__main__":
 # %%
 if __name__ == "__main__":
     #outer product
-
+    TimeThis.on = False
 
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
@@ -1902,52 +1883,52 @@ if __name__ == "__main__":
 
 
 
-    # %%
-    #outer product with tensordot
-    def test_tensordot(tensor_1, tensor_2, prec =1e-10):
-        test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
-        assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
-
-        #Contract over first and last indices:
-        test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
-        dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =1 ))
-        assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
-        test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
-        assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
-
-        #Contract over two first and last indices:
-        test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
-        dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =2 ))
-        if isinstance(test_tensor_15, SymmetricTensor):
-            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
-        else:
-            assert test_tensor_15 == dense_tensor_15
-
-        if tensor_1.rank >2 and tensor_2.rank >2:
-            test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
-            dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(0,1,2)) ))
-            dense_tensor_161 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,1,0)) ))
-            dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,0,1)) ))
-            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
-
-    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-            if A.rank +B.rank <= 8: #otherwise we can't convert to dense
-                test_tensordot(A,B)
-
-
+# %% [markdown] tags=[]
+#     #outer product with tensordot
+#     def test_tensordot(tensor_1, tensor_2, prec =1e-10):
+#         test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
+#         assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
+#
+#         #Contract over first and last indices:
+#         test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
+#         dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
+#                                                   tensor_2.todense(),
+#                                                   axes =1 ))
+#         assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
+#         test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
+#         assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
+#
+#         #Contract over two first and last indices:
+#         test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
+#         dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
+#                                                   tensor_2.todense(),
+#                                                   axes =2 ))
+#         if isinstance(test_tensor_15, SymmetricTensor):
+#             assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
+#         else:
+#             assert test_tensor_15 == dense_tensor_15
+#
+#         if tensor_1.rank >2 and tensor_2.rank >2:
+#             test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
+#             dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
+#                                                   tensor_2.todense(),
+#                                                   axes =((0,1,2),(0,1,2)) ))
+#             dense_tensor_161 = symmetrize(np.tensordot(tensor_1.todense(),
+#                                                   tensor_2.todense(),
+#                                                   axes =((0,1,2),(2,1,0)) ))
+#             dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
+#                                                   tensor_2.todense(),
+#                                                   axes =((0,1,2),(2,0,1)) ))
+#             assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
+#             assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
+#             assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
+#
+#     for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
+#         for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
+#             if A.rank +B.rank <= 8: #otherwise we can't convert to dense
+#                 test_tensordot(A,B)
+#
+#
 
 # %% [markdown]
 # ## Contraction with matrix along all indices
@@ -1991,8 +1972,8 @@ if __name__=="__main__":
             tensor_list += [random_tensor]
             chi_dense[i,:,:] = random_tensor.todense()
 
-        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1)
-        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2)
+        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1, rule ='all')
+        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2, rule ='all')
 
         assert  np.isclose(contract_1.todense(), symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))).all()
         assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
@@ -2003,7 +1984,7 @@ if __name__=="__main__":
 # %%
 if __name__ == "__main__":
     rank = 4
-    dim = 10
+    dim = 50
     #test is_equal
     diagonal = np.random.rand(dim)
     odiag1 = np.random.rand()
@@ -2023,50 +2004,30 @@ if __name__ == "__main__":
     assert C.is_equal(A)
 
 # %% [markdown]
-# ## Slownes of slicing
+# ## Slowness of slicing
 # Some tests to see where slowness could come from:
 
 # %%
 if __name__=="__main__":
-    def σcls_subset_with_i(self, i, J, σcls):
-        '''
-        Let σcls be a perm. class of a Symmetrictensor of rank=self.rank-1 and dim = self.dim.
-        This function extracts all entries in the current tensor, which are compatible with the σcls+i, where i is an integer, and
-        the other entries come from J.
-        For example, if self.rank =3 i=0, and σcls='ij', and J=(0,1) this will extract all the entry with tensor index:
-        (0,0,1)
-        '''
-        σcls_data = self._data[self.get_class_tuple(σcls)]
-        if isinstance(σcls_data, (list,np.ndarray)):
-            return [self[J+(i,)]] # this entry is actually unique, so the below, which we used before doesn't add anything relevant
-            #return [σcls_data[k] for k, K in enumerate(self.index_class_iter(σcls))
-             #                               if sorted((i, *J)) == sorted(K)]
-        else:
-            return [σcls_data]
-                        
-    for dim in [10,20,30,50]:
-        for rank in [2,3,4,5]:
-            vect =SymmetricTensor(rank=1, dim=dim)
+    TimeThis.on= True
+    with TimeThis("check slicing speed"):
+        D = A[0]
+
+
+# %% [markdown]
+# ### slowness of outer product:
+#
+
+# %%
+if __name__=="__main__":
+    for rank in [3]:
+        for dim in [50]:
+            vect = SymmetricTensor(rank=1, dim=dim)
             vect['i'] = np.random.rand(dim)
-            A = vect.outer_product([vect,]*(rank-1))
-            B = SymmetricTensor(rank=rank-1, dim=dim)
-            key =0
-            print(f'dim ={dim}, rank={rank}')
-            with TimeThis('loop1'):
-                for idx in B.index_class_iter(): 
-                    B[idx] = A[idx+(key,)]
-            with TimeThis('bigloop'):
-                for σbcls in B.perm_classes:
-                    B[σbcls] = [np.mean(np.fromiter(
-                                        itertools.chain.from_iterable( (
-                                        σcls_subset_with_i(A, key, J, σacls)
-                                for σacls in A.perm_classes if A.is_subσcls(σacls,σbcls) ) ),
-                                    dtype=A.dtype))
-                                            # Use fancy indexing to retrieve multiple values simultaneously
-                                            # Averaging is done to symmetrize the array
-                                for j, J in enumerate(B.index_class_iter(class_label=σbcls))]
-
-            print('\n')
-    
-
-
+            print('rank = ', rank)
+            print('dim = ', dim)
+            with TimeThis('pos_dict_creation'):
+                x = pos_dict[rank,dim]
+            with TimeThis('outer product'):
+                # vect x vect x vect ... x vect
+                A = vect.outer_product([vect,]*(rank-1))
