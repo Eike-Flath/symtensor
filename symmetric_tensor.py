@@ -933,16 +933,22 @@ class SymmetricTensor(Serializable):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
             if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
                 A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
-                if isinstance(A, (int, float)):
-                    C = self.__class__(dim=A.dim, rank=A.rank)
-                    for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A, B[σcls])
-                    return C
-                elif isinstance(B, (int, float)):
-                    C = self.__class__(dim=A.dim, rank=A.rank)
-                    for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A[σcls], B)
-                    return C
+                if not isinstance(A, SymmetricTensor):
+                    if np.ndim(A) ==0: #check if is scalar
+                        C = self.__class__(dim=A.dim, rank=A.rank)
+                        for σcls in C.perm_classes:
+                            C[σcls] = ufunc(A, B[σcls])
+                        return C
+                    else:
+                        raise TypeError(f"{ufunc} is not supported for objects of type {type(A)} and {type(B)}")
+                elif not isinstance(B, SymmetricTensor):
+                    if np.ndim(B) ==0: #check if is scalar
+                        C = self.__class__(dim=A.dim, rank=A.rank)
+                        for σcls in C.perm_classes:
+                            C[σcls] = ufunc(A[σcls], B)
+                        return C
+                    else:
+                        raise TypeError(f"{ufunc} is not supported for objects of type {type(A)} and {type(B)}")
                 elif A.dim != B.dim or A.rank != B.rank:
                     return NotImplemented
                 else:
@@ -1131,6 +1137,19 @@ class SymmetricTensor(Serializable):
                     C += tensor_list[idx[0]].outer_product([ tensor_list[i] for i in idx[1:]])*self[slice_idx]
             return C
 
+    def poly_term(self, x):
+        '''
+        for x an array, compute
+        \sum_{i_1, ..., i_r} self_{i_1,..., i_r} x_{1_1} ... x_{i_r}
+        '''
+        if not len(x) == self.dim:
+            raise ValueError('dimension of vector must match dimension of tensor')
+        vec = SymmetricTensor(rank =1, dim = self.dim)
+        vec['i'] = x
+        C = self.copy()
+        for r in range(self.rank):
+            C = C.tensordot(vec, axes =1)
+        return C
     ## Array creation, copy, etc. ##
 
     def __array__(self):
@@ -1977,6 +1996,23 @@ if __name__=="__main__":
 
         assert  np.isclose(contract_1.todense(), symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))).all()
         assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
+
+# %% [markdown]
+# ## Contraction with vector
+
+# %%
+if __name__ == "__main__":
+    A = SymmetricTensor(rank = 3, dim=3)
+    A[0,0,0] =1
+    A[0,0,1] =-12
+    A[0,1,2] = 0.5
+    A[2,2,2] = 1.0
+    A[0,2,2] = -30
+    A[1,2,2] = 0.1
+    x = np.random.rand(3)
+    x1 = np.random.rand(3)
+    assert np.isclose(A.poly_term(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
+    assert np.isclose(A.poly_term(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
 
 # %% [markdown]
 # ## Copying and Equality
