@@ -2011,8 +2011,15 @@ if __name__ == "__main__":
     A[1,2,2] = 0.1
     x = np.random.rand(3)
     x1 = np.random.rand(3)
+    x2 = np.zeros(3)
     assert np.isclose(A.poly_term(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
     assert np.isclose(A.poly_term(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
+    assert np.isclose(A.poly_term(x2), 0)
+
+
+# %%
+if __name__ == "__main__":
+    A.poly_term(x2), 0
 
 # %% [markdown]
 # ## Copying and Equality
