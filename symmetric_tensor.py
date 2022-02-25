@@ -1028,11 +1028,18 @@ class SymmetricTensor(Serializable):
                 if self.rank < 2 or other.rank < 2:
                     raise ValueError("Both tensors must have rank >=2")
                 get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
-                C = sum((np.multiply.outer(
+                if self.rank ==2 or other.rank==2: 
+                     C = sum((np.multiply(
                             self[get_slice_index(i,j,self.rank)],
                             other[get_slice_index(i,j,other.rank)])
                          for i in range(self.dim) for j in range(other.dim)),
                         start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
+                else:
+                    C = sum((np.multiply.outer(
+                                self[get_slice_index(i,j,self.rank)],
+                                other[get_slice_index(i,j,other.rank)])
+                             for i in range(self.dim) for j in range(other.dim)),
+                            start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
                 return C
             else:
                 raise NotImplementedError("tensordot is currently implemented only for 'axes'= 0, 1, 2. "
