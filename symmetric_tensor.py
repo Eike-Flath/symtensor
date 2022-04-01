@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: statGLOW
+#     display_name: Python (statGLOW)
 #     language: python
 #     name: statglow
 # ---
@@ -963,6 +963,7 @@ class SymmetricTensor(Serializable):
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
         elif method == "outer":
+            assert ufunc is np.multiply, f"{ufunc}.outer is not supported"
             A, B = inputs
             return self.outer_product(B, ufunc = ufunc, **kwargs)
         else:
@@ -1072,13 +1073,13 @@ class SymmetricTensor(Serializable):
                                       f"Received: axes={axes}")
 
     def contract_all_indices(self,W):
-        '''
+        """
         compute the contraction over all indices with a non-symmetric matrix, e.g.
 
         C_{ijk} = \sum_{abc} A_{abc} W_{ai} W_{bj} W_{ck}
 
         if current tensor has rank 3.
-        '''
+        """
 
         C = SymmetricTensor(rank = self.rank, dim = self.dim)
 
@@ -1102,7 +1103,7 @@ class SymmetricTensor(Serializable):
         return C
 
     def contract_tensor_list(self, tensor_list, n_times =1, rule = 'second_half'):
-        '''
+        """
         Do the following contraction:
 
         out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...}
@@ -1115,7 +1116,7 @@ class SymmetricTensor(Serializable):
 
         Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,...
         for fixed i are, we can do a contraction along the first index.
-        '''
+        """
         if not n_times <= self.rank:
             raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
@@ -1145,10 +1146,10 @@ class SymmetricTensor(Serializable):
             return C
 
     def poly_term(self, x):
-        '''
+        """
         for x an array, compute
         \sum_{i_1, ..., i_r} self_{i_1,..., i_r} x_{1_1} ... x_{i_r}
-        '''
+        """
         if not len(x) == self.dim:
             raise ValueError('dimension of vector must match dimension of tensor')
         if np.isclose(x,np.zeros(self.dim)).all(): 
@@ -2023,7 +2024,7 @@ if __name__ == "__main__":
     assert np.isclose(C.contract_all_indices(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
     assert np.isclose(C.contract_all_indices(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
     assert np.isclose(C.contract_all_indices(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
-    
+
 
 # %% [markdown]
 # ## Contraction with list of SymmetricTensors
