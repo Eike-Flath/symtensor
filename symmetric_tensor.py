@@ -1155,7 +1155,7 @@ class SymmetricTensor(Serializable):
         if not len(x) == self.dim:
             raise ValueError('dimension of vector must match dimension of tensor')
         if np.isclose(x,np.zeros(self.dim)).all(): 
-            return zero
+            return 0
         else:
             vec = SymmetricTensor(rank =1, dim = self.dim)
             vec['i'] = x
@@ -1623,7 +1623,7 @@ if __name__ == "__main__":
     fig.opts(hv.opts.HLine(color='grey', line_dash='dashed', line_width=2, alpha=0.5),
              hv.opts.Curve(width=500, logy=True, logx=True),
              hv.opts.Overlay(legend_position='right'))
-    #display(fig)
+    display(fig)
 
 # %% [markdown]
 # ## Tests
