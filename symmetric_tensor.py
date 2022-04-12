@@ -890,7 +890,11 @@ class SymmetricTensor(Serializable):
                     value = np.array(value)
                 self._data[repeats] = value
         else:
-            σcls, pos = self._convert_dense_index(key)
+            if self.rank==1 and isinstance(key,int): #special rules for vectors
+                σcls = (1,)
+                pos = key
+            else:
+                σcls, pos = self._convert_dense_index(key)
             v = self._data[σcls]
             if np.ndim(v) == 0:
                 if pos == slice(None):  # Equivalent to setting the whole permutation class
@@ -2023,7 +2027,7 @@ if __name__ == "__main__":
     assert np.isclose(C.contract_all_indices(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
     assert np.isclose(C.contract_all_indices(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
     assert np.isclose(C.contract_all_indices(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
-    
+
 
 # %% [markdown]
 # ## Contraction with list of SymmetricTensors
