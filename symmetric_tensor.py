@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: statGLOW
+#     display_name: Python (statGLOW)
 #     language: python
 #     name: statglow
 # ---
@@ -88,9 +88,7 @@ __all__ = ["SymmetricTensor"]
 #
 # In this initial version, `SymmetricTensor` is more of a framework than a full-featured class. It has the basic indexing support that felt necessary for basic usage as a storage container, so that we can start using it and add features as they become needed.
 #
-# I anticipate that a lot of the work with `SymmetricTensor` will revolve around building different iterators for the tensor components (per row, per column, etc.). Most features we will need can likely be written a few simple lines once we have an appropriate iterator.
-
-# %%
+# By design, operations on `SymmetricTensor`s involve iterating over values in non-trivial order, and cannot be expressed as simple, already-optimized dot products. Optimizing these operations is critical to applying our theory to more than low-dimensional toy examples; work in this regard, and justifications for some of the design decisions, can be found in the [developer docs](../../docs/developers/SymmetricTensor/symmetric_tensor_algdesign.ipynb)
 
 # %% [markdown]
 # ### Notation & conceptual design
@@ -967,6 +965,7 @@ class SymmetricTensor(Serializable):
                     C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                 return C
         elif method == "outer":
+            assert ufunc is np.multiply, f"{ufunc}.outer is not supported"
             A, B = inputs
             return self.outer_product(B, ufunc = ufunc, **kwargs)
         else:
@@ -1076,13 +1075,13 @@ class SymmetricTensor(Serializable):
                                       f"Received: axes={axes}")
 
     def contract_all_indices(self,W):
-        '''
+        """
         compute the contraction over all indices with a non-symmetric matrix, e.g.
 
         C_{ijk} = \sum_{abc} A_{abc} W_{ai} W_{bj} W_{ck}
 
         if current tensor has rank 3.
-        '''
+        """
 
         C = SymmetricTensor(rank = self.rank, dim = self.dim)
 
@@ -1106,7 +1105,7 @@ class SymmetricTensor(Serializable):
         return C
 
     def contract_tensor_list(self, tensor_list, n_times =1, rule = 'second_half'):
-        '''
+        """
         Do the following contraction:
 
         out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...}
@@ -1119,7 +1118,7 @@ class SymmetricTensor(Serializable):
 
         Then even if \chi is not symmetric under exchange of the first indices with the rest, but the subtensors \chi_i,...
         for fixed i are, we can do a contraction along the first index.
-        '''
+        """
         if not n_times <= self.rank:
             raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
@@ -1149,10 +1148,10 @@ class SymmetricTensor(Serializable):
             return C
 
     def poly_term(self, x):
-        '''
+        """
         for x an array, compute
         \sum_{i_1, ..., i_r} self_{i_1,..., i_r} x_{1_1} ... x_{i_r}
-        '''
+        """
         if not len(x) == self.dim:
             raise ValueError('dimension of vector must match dimension of tensor')
         if np.isclose(x,np.zeros(self.dim)).all(): 
