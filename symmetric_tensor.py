@@ -88,9 +88,7 @@ __all__ = ["SymmetricTensor"]
 #
 # In this initial version, `SymmetricTensor` is more of a framework than a full-featured class. It has the basic indexing support that felt necessary for basic usage as a storage container, so that we can start using it and add features as they become needed.
 #
-# I anticipate that a lot of the work with `SymmetricTensor` will revolve around building different iterators for the tensor components (per row, per column, etc.). Most features we will need can likely be written a few simple lines once we have an appropriate iterator.
-
-# %%
+# By design, operations on `SymmetricTensor`s involve iterating over values in non-trivial order, and cannot be expressed as simple, already-optimized dot products. Optimizing these operations is critical to applying our theory to more than low-dimensional toy examples; work in this regard, and justifications for some of the design decisions, can be found in the [developer docs](../../docs/developers/SymmetricTensor/symmetric_tensor_algdesign.ipynb)
 
 # %% [markdown]
 # ### Notation & conceptual design
