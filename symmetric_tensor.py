@@ -615,7 +615,8 @@ def partition_list_into_two(lst, size1, size2):
 #     - [ ] Rewrite `indep_iter` for pytorch
 #   - [ ] Ensure data manipulations are done on GPU: 
 #      - [ ] Rewrite `__array_ufunc_` for torch functions
-#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
+#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**  
+#           AR doesn't think `__array_function__` needs to be rewritten, but the four associated one-line functions decorated with `SymmetricTensor.implements` we might as well adapt for Pytorch. `asarray` and `tensordot` should be trivial, since PyTorch supports them. The other two functions we can explicitely disallow (by commenting them out basically), and if we really need them later we can add them at that time.
 #      - [ ] Rewrite `tensordot` for pytorch
 #      - [ ] Rewrite `outer_product` for pytorch
 #      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
@@ -640,6 +641,23 @@ def partition_list_into_two(lst, size1, size2):
 # ```
 #
 # What do you think?
+#
+# AR's suggestion:
+# - One abstract class `SymmetricTensor`
+# - Multiple subclasses for each implementation; at present, `NumpySymmetricTensor` and `TorchSymmetricTensor`.
+# - Each subclass in its own module
+# - All modules under the subpackage `symmetric_tensor` (which would replace this file)
+# - (Optional) Have an `__init__` file in the subpackage with something like the following code:
+#   ```python
+#   try:
+#       import torch
+#   except ImportError:
+#       from .numpy_symmetric_tensor import NumpySymmetricTensor as SymmetricTensor
+#   else:
+#       from .torch_symmetric_tensor import TorchSymmetricTensor as SymmetricTensor
+#       del torch
+#    ```
+#    This would ensure that already existing code should continue to work, and will switch to the Torch implementation if possible.
 
 # %%
 class SymmetricTensor(Serializable):
