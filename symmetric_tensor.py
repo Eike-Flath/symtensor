@@ -604,8 +604,11 @@ def partition_list_into_two(lst, size1, size2):
 # %% [markdown]
 # ### CPU to GPU: 
 # We want to move heavy calculations from CPU to GPU using `pytorch`. 
+#
+#
 # To do this we must: 
 #   - [ ] Ensure that data is stored on GPU:
+#     I already added a property `SymmetricTensor.device` which should automatically give us the right pytorch device (CPU or GPU)
 #     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
 #     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
 #     - [ ] Rewrite `__getitem__` for pytorch **(?)**
