@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: Python (statGLOW)
+#     display_name: statGLOW
 #     language: python
 #     name: statglow
 # ---
@@ -26,6 +26,7 @@ from ast import literal_eval
 import itertools
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
+import torch
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 import time
@@ -600,6 +601,43 @@ def partition_list_into_two(lst, size1, size2):
 # - Arithmetic operations are not currently supported.
 #   Elementwise operations between tensors of the same size and rank can be trivially implemented when the need arises; other operations (like `.dot`) should be possible with some more work.
 
+# %% [markdown]
+# ### CPU to GPU: 
+# We want to move heavy calculations from CPU to GPU using `pytorch`. 
+# To do this we must: 
+#   - [ ] Ensure that data is stored on GPU:
+#     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
+#     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
+#     - [ ] Rewrite `__getitem__` for pytorch **(?)**
+#     - [ ] Rewrite `indep_iter` for pytorch
+#   - [ ] Ensure data manipulations are done on GPU: 
+#      - [ ] Rewrite `__array_ufunc_` for torch functions
+#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
+#      - [ ] Rewrite `tensordot` for pytorch
+#      - [ ] Rewrite `outer_product` for pytorch
+#      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
+#      - [ ] Rewrite `contract_tensor_list` for pytorch
+#      - [ ] Rewrite `poly_term` for pytorch
+#      
+#      
+# We could do this while preserving the functions which use numpy or do everything new in torch. 
+# So either: 
+# ```
+# def some_func(self, ...): 
+#     if self.use_numpy: 
+#        # some numpy code
+#     else: 
+#        # some pytorch code
+# ```
+#
+# or directly do 
+# ```
+# def some_func(self, ...): 
+#     # some pytorch code
+# ```
+#
+# What do you think?
+
 # %%
 class SymmetricTensor(Serializable):
     """
@@ -678,6 +716,12 @@ class SymmetricTensor(Serializable):
 
     ## Translation functions ##
     # Mostly used internally, but part of the public API
+    @property
+    def device(self):
+        if torch.cuda.is_available():
+            return torch.device('cuda')
+        else:
+            return torch.device('cpu')
 
     def copy(self):
         '''
@@ -1154,7 +1198,7 @@ class SymmetricTensor(Serializable):
         """
         if not len(x) == self.dim:
             raise ValueError('dimension of vector must match dimension of tensor')
-        if np.isclose(x,np.zeros(self.dim)).all(): 
+        if np.isclose(x,np.zeros(self.dim)).all():
             return 0
         else:
             vec = SymmetricTensor(rank =1, dim = self.dim)
@@ -2013,7 +2057,7 @@ if __name__ == "__main__":
     assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
     assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
     assert np.isclose(A.contract_all_indices(W2).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).all()
-    
+
     B = SymmetricTensor(rank = 4, dim =4)
     B['iiii'] = np.random.rand(4)
     B['ijkl'] =12
