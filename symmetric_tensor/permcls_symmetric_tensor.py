@@ -9,7 +9,7 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: statGLOW
+#     display_name: Python (statGLOW)
 #     language: python
 #     name: statglow
 # ---
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     hv.extension('bokeh')
 
 # %%
-__all__ = ["SymmetricTensor"]
+__all__ = ["PermSymmetricTensor"]
 
 # %% [markdown]
 # ## Rationale
@@ -167,13 +167,13 @@ __all__ = ["SymmetricTensor"]
 
 # %%
 if __name__ == "__main__":
-    from symmetric_tensor import SymmetricTensor
+    from permcls_symmetric_tensor import PermClsSymmetricTensor
 
 # %% [markdown]
 # When created, `SymmetricTensors` default to being all zero. Note that only one scalar value is saved per “permutation class”, making this especially space efficient.
 
     # %%
-    A = SymmetricTensor(rank=4, dim=6)
+    A = PermClsSymmetricTensor(rank=4, dim=6)
     #display(A)
 
 # %% [markdown]
@@ -559,7 +559,7 @@ def partition_list_into_two(lst, size1, size2):
 
 
 # %% [markdown]
-# ### `SymmetricTensor`
+# ### `PermClsSymmetricTensor`
 #
 # **Public attributes**
 # - *dim*  → `int`
@@ -596,71 +596,13 @@ def partition_list_into_two(lst, size1, size2):
 #   This could certainly be done, although it would require some indexing gymnastics
 # - Similarly, the `__iter__` method is not implemented.
 #   To be consistent with a dense array, the produced iterator should yield
-#   `SymmetricTensor` objects of rank `k-1` corresponding to partial indexing
+#   `PermClsSymmetricTensor` objects of rank `k-1` corresponding to partial indexing
 #   along the first dimension.
 # - Arithmetic operations are not currently supported.
 #   Elementwise operations between tensors of the same size and rank can be trivially implemented when the need arises; other operations (like `.dot`) should be possible with some more work.
 
-# %% [markdown]
-# ### CPU to GPU:
-# We want to move heavy calculations from CPU to GPU using `pytorch`.
-#
-#
-# To do this we must:
-#   - [ ] Ensure that data is stored on GPU:
-#     I already added a property `SymmetricTensor.device` which should automatically give us the right pytorch device (CPU or GPU)
-#     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
-#     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
-#     - [ ] Rewrite `__getitem__` for pytorch **(?)**
-#     - [ ] Rewrite `indep_iter` for pytorch
-#   - [ ] Ensure data manipulations are done on GPU:
-#      - [ ] Rewrite `__array_ufunc_` for torch functions
-#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
-#           AR doesn't think `__array_function__` needs to be rewritten, but the four associated one-line functions decorated with `SymmetricTensor.implements` we might as well adapt for Pytorch. `asarray` and `tensordot` should be trivial, since PyTorch supports them. The other two functions we can explicitely disallow (by commenting them out basically), and if we really need them later we can add them at that time.
-#      - [ ] Rewrite `tensordot` for pytorch
-#      - [ ] Rewrite `outer_product` for pytorch
-#      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
-#      - [ ] Rewrite `contract_tensor_list` for pytorch
-#      - [ ] Rewrite `poly_term` for pytorch
-#
-#
-# We could do this while preserving the functions which use numpy or do everything new in torch.
-# So either:
-# ```
-# def some_func(self, ...):
-#     if self.use_numpy:
-#        # some numpy code
-#     else:
-#        # some pytorch code
-# ```
-#
-# or directly do
-# ```
-# def some_func(self, ...):
-#     # some pytorch code
-# ```
-#
-# What do you think?
-#
-# AR's suggestion:
-# - One abstract class `SymmetricTensor`
-# - Multiple subclasses for each implementation; at present, `NumpySymmetricTensor` and `TorchSymmetricTensor`.
-# - Each subclass in its own module
-# - All modules under the subpackage `symmetric_tensor` (which would replace this file)
-# - (Optional) Have an `__init__` file in the subpackage with something like the following code:
-#   ```python
-#   try:
-#       import torch
-#   except ImportError:
-#       from .numpy_symmetric_tensor import NumpySymmetricTensor as SymmetricTensor
-#   else:
-#       from .torch_symmetric_tensor import TorchSymmetricTensor as SymmetricTensor
-#       del torch
-#    ```
-#    This would ensure that already existing code should continue to work, and will switch to the Torch implementation if possible.
-
 # %%
-class SymmetricTensor(Serializable):
+class PermClsSymmetricTensor(Serializable):
     """
     On creation, defaults to a zero tensor.
     """
@@ -693,7 +635,7 @@ class SymmetricTensor(Serializable):
                                       for repeats in self._data}
         if data:
             if isinstance(data, np.ndarray):
-                raise NotImplementedError("Casting plain arrays to SymmetricTensor "
+                raise NotImplementedError("Casting plain arrays to PermClsSymmetricTensor "
                                           "is not yet supported.")
                 # TODO: Check that the array is symmetric, then extract values.
             elif not isinstance(data, dict):
@@ -711,7 +653,7 @@ class SymmetricTensor(Serializable):
                     del data[key]
             # Assert that the deserialized data has the right shape
             if data.keys() != self._data.keys():
-                raise ValueError("`data` argument to SymmetricTensor does not "
+                raise ValueError("`data` argument to PermClsSymmetricTensor does not "
                                  "have the expected format.\nExpected keys: "
                                  f"{sorted(self._data)}\nReceived keys:{sorted(data)}")
             for k, v in data.items():
@@ -731,7 +673,7 @@ class SymmetricTensor(Serializable):
         # NB: JSON keys must be str, int, float, bool or None, but not tuple => convert to str
         data: Dict[str, Union[float, Array[float,1]]]
         @classmethod
-        def json_encoder(cls, symtensor: SymmetricTensor):
+        def json_encoder(cls, symtensor: PermClsSymmetricTensor):
             return cls(rank=symtensor.rank, dim=symtensor.dim,
                        data={str(k): v for k,v in symtensor._data.items()})
 
@@ -745,17 +687,17 @@ class SymmetricTensor(Serializable):
             return torch.device('cpu')
 
     def copy(self):
-        '''
+        """
         Return a copy of the current tensor
-        '''
-        return SymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
+        """
+        return PermClsSymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
 
     def is_equal(self, other, prec =None):
-        '''
+        """
         Check current SymmetricTensor is equal to other.
-        '''
-        if not isinstance(other, SymmetricTensor):
-            raise TypeError("Both tensors must be instances of SymmetricTensor for comparison")
+        """
+        if not isinstance(other, PermClsSymmetricTensor):
+            raise TypeError("Both tensors must be instances of PermClsSymmetricTensor for comparison")
         equal = True
         if prec is None:
             for idx in self.index_class_iter():
@@ -777,7 +719,7 @@ class SymmetricTensor(Serializable):
         to which it belongs.
 
         Usage:
-        >>> A = SymmetricTensor(rank=4, dim=6)
+        >>> A = PermClsSymmetricTensor(rank=4, dim=6)
         >>> A.get_perm_class((5,0,1,0))
         'iijk'
         """
@@ -836,7 +778,7 @@ class SymmetricTensor(Serializable):
     ## Dunder methods ##
 
     def __repr__(self):
-        s = f"SymmetricTensor(rank: {self.rank}, dim: {self.dim})"
+        s = f"PermClsSymmetricTensor(rank: {self.rank}, dim: {self.dim})"
         lines = [f"  {self.get_class_label(σcls)}: {value}"
                  for σcls, value in self._data.items()]
         return "\n".join((s, *lines)) + "\n"  # Lists of SymmetricTensors look better if each tensor starts on its own line
@@ -856,7 +798,7 @@ class SymmetricTensor(Serializable):
             if len(key) < self.rank:
                 raise IndexError(
                     "Partial indexing (where the number of indices is less "
-                    "than the rank) is inefficient with a SymmetricTensor and "
+                    "than the rank) is inefficient with a PermClsSymmetricTensor and "
                     "not currently supported.")
             else:
                 raise IndexError(f"{key} does not seem to be a valid array index, "
@@ -868,7 +810,7 @@ class SymmetricTensor(Serializable):
             else:
                 raise IndexError(
                     "Partial indexing (where the number of indices is less "
-                    "than the rank) is inefficient with a SymmetricTensor and "
+                    "than the rank) is inefficient with a PermClsSymmetricTensor and "
                     "not currently supported.")
         else:
             raise TypeError(f"Unrecognized index type '{type(key)}' (value: {key}).\n"
@@ -905,7 +847,7 @@ class SymmetricTensor(Serializable):
 
                 if not subslicing:
                     new_rank = self.rank -len(indices_fixed)
-                    C = SymmetricTensor(rank = new_rank, dim = self.dim)
+                    C = PermClsSymmetricTensor(rank = new_rank, dim = self.dim)
                     for idx in C.index_class_iter():
                         C[idx] = self[idx +indices_fixed]
                     return C
@@ -927,7 +869,7 @@ class SymmetricTensor(Serializable):
                 vals = self._data[σcls]
                 return vals if np.isscalar(vals) else vals[pos]
             elif self.dim >1:
-                B = SymmetricTensor(rank = self.rank-1, dim = self.dim)
+                B = PermClsSymmetricTensor(rank = self.rank-1, dim = self.dim)
                 for idx in B.index_class_iter():
                     B[idx] = self[idx+(key,)]
 
@@ -982,13 +924,14 @@ class SymmetricTensor(Serializable):
             return NotImplemented
         # NB: In contrast to the example in NEP18, we don't require
         #     arguments to be SymmetricTensors – ndarray is also allowed.
-        if not all(issubclass(t, (SymmetricTensor, np.ndarray)) for t in types):
+        # TODO?: Support other symmetric tensor formats ?
+        if not all(issubclass(t, (PermClsSymmetricTensor, np.ndarray)) for t in types):
             return NotImplemented
         return self._HANDLED_FUNCTIONS[func](*args, **kwargs)
 
     @classmethod
     def implements(cls, numpy_function):
-        """Register an __array_function__ implementation for SymmetricTensor objects."""
+        """Register an __array_function__ implementation for PermClsSymmetricTensor objects."""
         def decorator(func):
             cls._HANDLED_FUNCTIONS[numpy_function] = func
             return func
@@ -1000,7 +943,7 @@ class SymmetricTensor(Serializable):
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
             if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
                 A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
-                if not isinstance(A, SymmetricTensor):
+                if not isinstance(A, PermClsSymmetricTensor):
                     if np.ndim(A) ==0: #check if is scalar
                         C = self.__class__(dim=A.dim, rank=A.rank)
                         for σcls in C.perm_classes:
@@ -1008,7 +951,7 @@ class SymmetricTensor(Serializable):
                         return C
                     else:
                         raise TypeError(f"{ufunc} is not supported for objects of type {type(A)} and {type(B)}")
-                elif not isinstance(B, SymmetricTensor):
+                elif not isinstance(B, PermClsSymmetricTensor):
                     if np.ndim(B) ==0: #check if is scalar
                         C = self.__class__(dim=A.dim, rank=A.rank)
                         for σcls in C.perm_classes:
@@ -1051,11 +994,11 @@ class SymmetricTensor(Serializable):
         Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
         The result generated here is the symmetrized version of the outer product.
         """
-        if isinstance(other, SymmetricTensor):
+        if isinstance(other, PermClsSymmetricTensor):
             if self.dim != other.dim:
-                raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
+                raise NotImplementedError("Currently only outer products between PermClsSymmetricTensors of the same dimension are supported.")
             else:
-                C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
+                C = PermClsSymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
                 for I in C.index_class_iter():
                     list1, list2, L = partition_list_into_two(I, self.rank, other.rank)
                     C[I] = sum( ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2) )/L
@@ -1065,17 +1008,17 @@ class SymmetricTensor(Serializable):
             for o in other:
                 C = C.outer_product(o)
             return C
-        elif not isinstance(other, (SymmetricTensor,list)):
-            raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
+        elif not isinstance(other, (PermClsSymmetricTensor,list)):
+            raise TypeError( 'Argument must be PermClsSymmetricTensor or list of PermClsSymmetricTensors')
 
     def tensordot(self, other, axes=2):
         """
         like numpy.tensordot, but outputs are all symmetrized.
         """
-        if not isinstance(other, SymmetricTensor):
-            raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
+        if not isinstance(other, PermClsSymmetricTensor):
+            raise NotImplementedError("Currently only tensor products between PermClsSymmetricTensors are supported.")
         if self.dim != other.dim:
-            raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
+            raise NotImplementedError("Currently only tensor products between PermClsSymmetricTensors of the same dimension are supported.")
         if isinstance(axes,int):
             if axes == 0:
                 return self.outer_product(other)
@@ -1085,13 +1028,13 @@ class SymmetricTensor(Serializable):
                     return np.dot(self['i'],other['i'])
                 elif other.rank ==1 and self.rank >1:
                     return sum((self[i]*other[i] for i in range(self.dim)),
-                               start=SymmetricTensor(self.rank -1, self.dim))
+                               start=PermClsSymmetricTensor(self.rank -1, self.dim))
                 elif other.rank >1 and self.rank ==1:
                     return sum((self[i]*other[i] for i in range(self.dim)),
-                               start=SymmetricTensor(other.rank -1, self.dim))
+                               start=PermClsSymmetricTensor(other.rank -1, self.dim))
                 else:
                     return sum((self[i].outer_product(other[i]) for i in range(self.dim)),
-                           start=SymmetricTensor(self.rank + other.rank - 2, self.dim))
+                           start=PermClsSymmetricTensor(self.rank + other.rank - 2, self.dim))
             elif axes == 2:
                 if self.rank < 2 or other.rank < 2:
                     raise ValueError("Both tensors must have rank >=2")
@@ -1101,13 +1044,13 @@ class SymmetricTensor(Serializable):
                             self[get_slice_index(i,j,self.rank)],
                             other[get_slice_index(i,j,other.rank)])
                          for i in range(self.dim) for j in range(other.dim)),
-                        start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
+                        start=PermClsSymmetricTensor(self.rank + other.rank - 4, self.dim))
                 else:
                     C = sum((np.multiply.outer(
                                 self[get_slice_index(i,j,self.rank)],
                                 other[get_slice_index(i,j,other.rank)])
                              for i in range(self.dim) for j in range(other.dim)),
-                            start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
+                            start=PermClsSymmetricTensor(self.rank + other.rank - 4, self.dim))
                 return C
             else:
                 raise NotImplementedError("tensordot is currently implemented only for 'axes'= 0, 1, 2. "
@@ -1125,7 +1068,7 @@ class SymmetricTensor(Serializable):
                 C = sum((np.multiply.outer(self[get_slice_index(idx,self.rank)],
                                            other[get_slice_index(idx,other.rank)])
                          for idx in itertools.product(range(self.dim),repeat = rank_deduct)),
-                        start=SymmetricTensor(self.rank + other.rank - 2*rank_deduct, self.dim))
+                        start=PermClsSymmetricTensor(self.rank + other.rank - 2*rank_deduct, self.dim))
                 return C
             elif isinstance(axes1,int):
                 if not isinstance(axes2,int):
@@ -1148,7 +1091,7 @@ class SymmetricTensor(Serializable):
         if current tensor has rank 3.
         """
 
-        C = SymmetricTensor(rank = self.rank, dim = self.dim)
+        C = PermClsSymmetricTensor(rank = self.rank, dim = self.dim)
 
         def _index_perm_prod_sum(W, idx_fixed, idx_permute):
             '''
@@ -1187,11 +1130,11 @@ class SymmetricTensor(Serializable):
         if not n_times <= self.rank:
             raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
-            if not isinstance(list_entry, SymmetricTensor):
-                raise  TypeError("tensor_list entries must be SymmetricTensors")
+            if not isinstance(list_entry, PermClsSymmetricTensor):
+                raise  TypeError("tensor_list entries must be PermClsSymmetricTensors")
         if self.rank ==1 and n_times ==1:
             return sum((tensor_list[i]*self[i] for i in range(self.dim)),
-                        start=SymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
+                        start=PermClsSymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
         else:
             get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
             if rule == 'second_half':
@@ -1201,7 +1144,7 @@ class SymmetricTensor(Serializable):
             else:
                 indices = itertools.product(range(self.dim), repeat = n_times)
             chi_rank = tensor_list[0].rank
-            C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
+            C = PermClsSymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
             if n_times < self.rank:
                 for idx in indices:
                     slice_idx = get_slice_index(idx, self.rank)
@@ -1222,7 +1165,7 @@ class SymmetricTensor(Serializable):
         if np.isclose(x,np.zeros(self.dim)).all():
             return 0
         else:
-            vec = SymmetricTensor(rank =1, dim = self.dim)
+            vec = PermClsSymmetricTensor(rank =1, dim = self.dim)
             vec['i'] = x
             C = self.copy()
             for r in range(self.rank):
@@ -1243,7 +1186,7 @@ class SymmetricTensor(Serializable):
             # We received copy=False & all sub arrays were successfully not copied
             return self
         else:
-            return SymmetricTensor(self.rank, self.dim, new_data)
+            return PermClsSymmetricTensor(self.rank, self.dim, new_data)
 
     def asanyarray(self, dtype=None, order=None):
         new_data = {k: v.asanyarray(dtype, order) if isinstance(v, np.ndarray)
@@ -1254,7 +1197,7 @@ class SymmetricTensor(Serializable):
             # We received copy=False & all sub arrays were successfully not copied
             return self
         else:
-            return SymmetricTensor(self.rank, self.dim, new_data)
+            return PermClsSymmetricTensor(self.rank, self.dim, new_data)
 
     def astype(self, dtype, order, casting, subok=True, copy=True):
         new_data = {k: v.astype(dtype, order, casting, subok, copy) if isinstance(v, np.ndarray)
@@ -1265,7 +1208,7 @@ class SymmetricTensor(Serializable):
             # We received copy=False & all sub arrays were successfully not copied
             return self
         else:
-            return SymmetricTensor(self.rank, self.dim, new_data)
+            return PermClsSymmetricTensor(self.rank, self.dim, new_data)
 
     ## Public attributes & API ##
 
@@ -1485,35 +1428,6 @@ class SymmetricTensor(Serializable):
         return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
 
-# %%
-def transpose(A, axes):
-    return np.transpose(A, axes)
-from itertools import permutations
-
-def symmetrize(dense_tensor):
-    D = dense_tensor.ndim
-    n = np.prod(range(1,D+1))  # Factorial – number of permutations
-    return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
-
-if __name__ == "__main__":
-
-    A = SymmetricTensor(rank = 3, dim=3)
-
-    A[0,0,0] =1
-    A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-
-    W = np.random.rand(3,3)
-    with TimeThis('index_class_iter'):
-        li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
-    W1 = np.random.rand(3,3)
-    assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
-
-
 # %% [markdown]
 # ### Implementation of the `__array_function__` protocol
 #
@@ -1538,26 +1452,26 @@ if __name__ == "__main__":
 # - `einsum()` [**TODO**]
 
 # %%
-@SymmetricTensor.implements(np.asarray)
+@PermClsSymmetricTensor.implements(np.asarray)
 def asarray(a, dtype=None, order=None):
     return a.asarray(dtype, order=order)
 
-@SymmetricTensor.implements(np.asanyarray)
+@PermClsSymmetricTensor.implements(np.asanyarray)
 def asanyarray(a, dtype=None, order=None):
     return a.asanyarray(dtype, order=order)
 
-@SymmetricTensor.implements(np.tensordot)
+@PermClsSymmetricTensor.implements(np.tensordot)
 def tensordot(a, b, axes=2):
     return a.tensordot(b, axes=2)
 
-@SymmetricTensor.implements(np.einsum_path)
+@PermClsSymmetricTensor.implements(np.einsum_path)
 def einsum_path(*operands, optimize='greedy', einsum_call=False):
-    with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
+    with make_array_like(PermClsSymmetricTensor(0,0), np.core.einsumfunc):
         return np.core.einsumfunc.einsum_path.__wrapped__(
             *operands, optimize=optimize, einsum_call=einsum_call)
 
 # TODO
-#@SymmetricTensor.implements(np.einsum)
+#@PermClsSymmetricTensor.implements(np.einsum)
 #def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
 #    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
 #    #     C code which requires true arrays
@@ -1577,7 +1491,7 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 # This however doesn't address the use of `asarray` within NumPy functions, where it is mostly called without the `like` keyword. (Which makes sense – to use the keyword, the function would have to know the duck type desired by the user.) As a workaround, we provide below the `make_array_like` context manager: within the context, and only for the specified modules, the functions `asarray` and `asanyarray` are modified to inject a specified type as the default value for the `like` keyword. For example, within `np.einsum_path`, `asanyarray` is called on the array inputs. To ensure that this call returns a `SymmetricTensor` rather than an `ndarray`, we first determine the module in which this call is made (in this case, *np.core.einsumfunc*). Then
 #
 # ```python
-# A = SymmetricTensor(3,4)
+# A = PermClsSymmetricTensor(3,4)
 # with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
 #     np.einsum_path('iij', A)  # Does not cast to plain Array
 # ```
@@ -1671,7 +1585,7 @@ if __name__ == "__main__":
             # Dense size (measured in bytes; assume 64-bit values)
             dense = dim**rank*8 + 104  # 104: fixed overhead for arrays
             # SymmetricTensor size
-            A = SymmetricTensor(rank=rank, dim=dim)
+            A = PermClsSymmetricTensor(rank=rank, dim=dim)
             # For dicts, getsizeof oly counts the number of keys/value pairs,
             # not the size of either of them.
             sym = sys.getsizeof(A)
@@ -1695,6 +1609,9 @@ if __name__ == "__main__":
 
 # %%
 if __name__ == "__main__":
+    SymmetricTensor = PermClsSymmetricTensor  # This makes it easier to write reusable tests for different SymmetricTensor formats
+
+    # %%
     import pytest
     from statGLOW.utils import does_not_warn
     from collections import Counter
@@ -1879,13 +1796,39 @@ if __name__ == "main":
     )
 
 # %% [markdown]
+# ### Copying and Equality
+
+# %%
+if __name__ == "__main__":
+    rank = 4
+    dim = 50
+    #test is_equal
+    diagonal = np.random.rand(dim)
+    odiag1 = np.random.rand()
+    odiag2 = np.random.rand()
+    A = SymmetricTensor(rank = rank, dim =dim)
+    B = SymmetricTensor(rank = rank, dim =dim)
+    A['iiii'] = diagonal
+    B['iiii'] = diagonal
+    A['iiij'] = odiag1
+    B['iiij'] = odiag1
+    A['iijj'] = odiag2
+    B['iijj'] = odiag2
+    assert A.is_equal(B)
+
+    #test copying
+    C = A.copy()
+    assert C.is_equal(A)
+
+# %% [markdown]
 # ### Serialization
 
     # %%
+    from statGLOW.smttask_ml import scityping
     class Foo(BaseModel):
         A: SymmetricTensor
         class Config:
-            json_encoders = {Serializable: Serializable.json_encoder}
+            json_encoders = scityping.json_encoders  # Includes Serializable encoder
     foo = Foo(A=A)
     foo2 = Foo.parse_raw(foo.json())
     assert foo2.json() == foo.json()
@@ -1941,15 +1884,7 @@ if __name__ == "main":
 #             np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
 
 # %% [markdown]
-# ### WIP
-#
-# *Ordering permutation classes.*
-# At some point I thought I would need a scheme for ordering permutation classes (for implementing a hierarchy, where e.g. `'ijkl'` can be used as a default for `'iijk'`). I save it here in case it turns out to be useful after all.
-#
-# [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCLigZ1cIl1cbiAgXG4gICAgc3R5bGUgTiBmaWxsOm5vbmUsIHN0cm9rZTpub25lIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifSwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)](https://mermaid-js.github.io/mermaid-live-editor/edit##eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCJcdOKBnVwiXVxuICBcbiAgICBzdHlsZSBOIGZpbGw6bm9uZSwgc3Ryb2tlOm5vbmUiLCJtZXJtYWlkIjoie1xuICBcInRoZW1lXCI6IFwiZGVmYXVsdFwiXG59IiwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)
-
-# %% [markdown]
-# ## Arithmetic
+# ### Arithmetic
 
 # %%
 if __name__ == "__main__":
@@ -2057,7 +1992,7 @@ if __name__ == "__main__":
 
 
 # %% [markdown]
-# ## Contraction with matrix along all indices
+# ### Contraction with matrix along all indices
 
 # %%
 if __name__ == "__main__":
@@ -2094,7 +2029,7 @@ if __name__ == "__main__":
 
 
 # %% [markdown]
-# ## Contraction with list of SymmetricTensors
+# ### Contraction with list of SymmetricTensors
 
 # %%
 if __name__=="__main__":
@@ -2124,7 +2059,7 @@ if __name__=="__main__":
         assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
 
 # %% [markdown]
-# ## Contraction with vector
+# ### Contraction with vector
 
 # %%
 if __name__ == "__main__":
@@ -2148,32 +2083,10 @@ if __name__ == "__main__":
     print(A.poly_term(x2))
 
 # %% [markdown]
-# ## Copying and Equality
-
-# %%
-if __name__ == "__main__":
-    rank = 4
-    dim = 50
-    #test is_equal
-    diagonal = np.random.rand(dim)
-    odiag1 = np.random.rand()
-    odiag2 = np.random.rand()
-    A = SymmetricTensor(rank = rank, dim =dim)
-    B = SymmetricTensor(rank = rank, dim =dim)
-    A['iiii'] = diagonal
-    B['iiii'] = diagonal
-    A['iiij'] = odiag1
-    B['iiij'] = odiag1
-    A['iijj'] = odiag2
-    B['iijj'] = odiag2
-    assert A.is_equal(B)
-
-    #test copying
-    C = A.copy()
-    assert C.is_equal(A)
+# ## Timings
 
 # %% [markdown]
-# ## Slowness of slicing
+# ### Slicing
 # Some tests to see where slowness could come from:
 
 # %%
@@ -2184,8 +2097,7 @@ if __name__=="__main__":
 
 
 # %% [markdown]
-# ### slowness of outer product:
-#
+# ### Outer product:
 
 # %%
 if __name__=="__main__":
@@ -2200,3 +2112,41 @@ if __name__=="__main__":
             with TimeThis('outer product'):
                 # vect x vect x vect ... x vect
                 A = vect.outer_product([vect,]*(rank-1))
+
+# %% [markdown]
+# ### Contractions
+
+    # %%
+    def transpose(A, axes):
+        return np.transpose(A, axes)
+    from itertools import permutations
+
+    def symmetrize(dense_tensor):
+        D = dense_tensor.ndim
+        n = np.prod(range(1,D+1))  # Factorial – number of permutations
+        return sum(transpose(dense_tensor, σaxes) for σaxes in permutations(range(D))) / n
+
+
+    A = SymmetricTensor(rank = 3, dim=3)
+
+    A[0,0,0] =1
+    A[0,0,1] =-12
+    A[0,1,2] = 0.5
+    A[2,2,2] = 1.0
+    A[0,2,2] = -30
+    A[1,2,2] = 0.1
+
+    W = np.random.rand(3,3)
+    with TimeThis('index_class_iter'):
+        li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
+    W1 = np.random.rand(3,3)
+    assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
+    assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
+
+# %% [markdown]
+# ## WIP
+#
+# *Ordering permutation classes.*
+# At some point I thought I would need a scheme for ordering permutation classes (for implementing a hierarchy, where e.g. `'ijkl'` can be used as a default for `'iijk'`). I save it here in case it turns out to be useful after all.
+#
+# [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCLigZ1cIl1cbiAgXG4gICAgc3R5bGUgTiBmaWxsOm5vbmUsIHN0cm9rZTpub25lIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifSwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)](https://mermaid-js.github.io/mermaid-live-editor/edit##eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCJcdOKBnVwiXVxuICBcbiAgICBzdHlsZSBOIGZpbGw6bm9uZSwgc3Ryb2tlOm5vbmUiLCJtZXJtYWlkIjoie1xuICBcInRoZW1lXCI6IFwiZGVmYXVsdFwiXG59IiwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)
