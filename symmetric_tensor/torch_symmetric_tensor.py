@@ -37,7 +37,7 @@ import pytest
 from statGLOW.utils import does_not_warn
 from collections import Counter
 from statGLOW.stats.symmetric_tensor import *
-from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts
+from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two
 
 # %%
 if __name__ == "__main__":
@@ -105,9 +105,9 @@ __all__ = ["TorchSymmetricTensor"]
 #     - [x] Rewrite `indep_iter` for pytorch
 #   - [ ] Ensure data manipulations are done on GPU: 
 #      - [ ] Rewrite `__array_ufunc_` for torch functions
-#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
-#      - [ ] Rewrite `tensordot` for pytorch
-#      - [ ] Rewrite `outer_product` for pytorch
+#      - [x] Rewrite `__array_function_` for torch functions **if necessary?**
+#      - [x] Rewrite `tensordot` for pytorch
+#      - [x] Rewrite `outer_product` for pytorch
 #      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
 #      - [ ] Rewrite `contract_tensor_list` for pytorch
 #      - [ ] Rewrite `poly_term` for pytorch
@@ -117,7 +117,7 @@ __all__ = ["TorchSymmetricTensor"]
 # -  For serialisation: Does `Array` include `torch.Tensor`?
 
 # %%
-class TorchSymmetricTensor(SymmetricTensor):
+class TorchSymmetricTensor(PermClsSymmetricTensor):
     """
     On creation, defaults to a zero tensor.
     """
@@ -295,14 +295,32 @@ class TorchSymmetricTensor(SymmetricTensor):
     # __array_ufunc__ protocol (NEP 13)
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        ufunc_dict = {np.add      : torch.add, 
+                      np.subtract : torch.subtract, 
+                      np.multiply : torch.multiply, 
+                      np.divide   : torch.divide, 
+                      np.power    : torch.float_power,
+                      np.exp      : torch.exp, 
+                      np.sin      : torch.sin, 
+                      np.cos      : torch.cos, 
+                      np.tan      : torch.tan, 
+                      np.cosh     : torch.cosh, 
+                      np.sinh     : torch.sinh, 
+                      np.tanh     : torch.tanh, 
+                      np.sign     : torch.sign, 
+                      np.abs      : torch.abs, 
+                      np.sqrt     : torch.sqrt, 
+                      np.log      : torch.log
+        
+        }
         if method == "__call__":  # The "standard" ufunc, e.g. `multiply`, and not `multiply.outer`
-            if ufunc in {np.add, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
+            if ufunc in {np.add, np.subtract, np.multiply, np.divide, np.power}:  # Set of all ufuncs we want to support
                 A, B = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
                 if not isinstance(A, SymmetricTensor):
                     if np.ndim(A) ==0: #check if is scalar
                         C = self.__class__(dim=A.dim, rank=A.rank)
                         for σcls in C.perm_classes:
-                            C[σcls] = ufunc(A, B[σcls])
+                            C[σcls] = ufunc_dict[ufunc](A, B[σcls])
                         return C
                     else:
                         raise TypeError(f"{ufunc} is not supported for objects of type {type(A)} and {type(B)}")
@@ -310,7 +328,7 @@ class TorchSymmetricTensor(SymmetricTensor):
                     if np.ndim(B) ==0: #check if is scalar
                         C = self.__class__(dim=A.dim, rank=A.rank)
                         for σcls in C.perm_classes:
-                            C[σcls] = ufunc(A[σcls], B)
+                            C[σcls] = ufunc_dict[ufunc](A[σcls], B)
                         return C
                     else:
                         raise TypeError(f"{ufunc} is not supported for objects of type {type(A)} and {type(B)}")
@@ -319,13 +337,13 @@ class TorchSymmetricTensor(SymmetricTensor):
                 else:
                     C = self.__class__(dim=A.dim, rank=A.rank)
                     for σcls in C.perm_classes:
-                        C[σcls] = ufunc(A[σcls], B[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
+                        C[σcls] = ufunc_dict[ufunc](A[σcls], B[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
                     return C
             elif ufunc in {np.exp, np.sin, np.cos, np.tan, np.cosh, np.sinh, np.tanh, np.sign, np.abs, np.sqrt, np.log}:  # Set of all ufuncs we want to support
                 A, = inputs   # FIXME: Check the shape of `inputs`. It might also be that we need `B = self` instead
                 C = self.__class__(dim=A.dim, rank=A.rank)
                 for σcls in C.perm_classes:
-                    C[σcls] = ufunc(A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D array
+                    C[σcls] = ufunc_dict[ufunc](A[σcls])  # This should always do the right whether, whether A[σcls] is a scalar or 1D tensor
                 return C
         elif method == "outer":
             assert ufunc is np.multiply, f"{ufunc}.outer is not supported"
@@ -334,43 +352,33 @@ class TorchSymmetricTensor(SymmetricTensor):
         else:
             return NotImplemented  # NB: This is different from `raise NotImplementedError`
 
-    # Implementations of ufuncs
-
-    def __add__(self, other):
-        return np.add(self, other)
-    def __mul__(self, other):
-        return np.multiply(self, other)
-    def __sub__(self,other):
-        C = other*(-1)
-        return np.add(self, C)
-
     def outer_product(self, other, ufunc=np.multiply):  # SYMMETRIC ALGEBRA
         """
         Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
         The result generated here is the symmetrized version of the outer product.
         """
-        if isinstance(other, SymmetricTensor):
+        if isinstance(other, TorchSymmetricTensor):
             if self.dim != other.dim:
                 raise NotImplementedError("Currently only outer products between SymmetricTensors of the same dimension are supported.")
             else:
-                C = SymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
+                C = TorchSymmetricTensor(dim=self.dim, rank=self.rank+other.rank)
                 for I in C.index_class_iter():
                     list1, list2, L = partition_list_into_two(I, self.rank, other.rank)
-                    C[I] = sum( ufunc(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2) )/L
+                    C[I] = sum( torch.multiply(self[tuple(idx1)], other[tuple(idx2)]) for idx1, idx2 in zip(list1,list2) )/L
                 return C
         elif isinstance(other, list):
             C = self.copy()
             for o in other:
                 C = C.outer_product(o)
             return C
-        elif not isinstance(other, (SymmetricTensor,list)):
+        elif not isinstance(other, (TorchSymmetricTensor,list)):
             raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
 
     def tensordot(self, other, axes=2):
         """
         like numpy.tensordot, but outputs are all symmetrized.
         """
-        if not isinstance(other, SymmetricTensor):
+        if not isinstance(other, TorchSymmetricTensor):
             raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
         if self.dim != other.dim:
             raise NotImplementedError("Currently only tensor products between SymmetricTensors of the same dimension are supported.")
@@ -383,29 +391,29 @@ class TorchSymmetricTensor(SymmetricTensor):
                     return np.dot(self['i'],other['i'])
                 elif other.rank ==1 and self.rank >1:
                     return sum((self[i]*other[i] for i in range(self.dim)),
-                               start=SymmetricTensor(self.rank -1, self.dim))
+                               start=TorchSymmetricTensor(self.rank -1, self.dim))
                 elif other.rank >1 and self.rank ==1:
                     return sum((self[i]*other[i] for i in range(self.dim)),
-                               start=SymmetricTensor(other.rank -1, self.dim))
+                               start=TorchSymmetricTensor(other.rank -1, self.dim))
                 else:
                     return sum((self[i].outer_product(other[i]) for i in range(self.dim)),
-                           start=SymmetricTensor(self.rank + other.rank - 2, self.dim))
+                           start=TorchSymmetricTensor(self.rank + other.rank - 2, self.dim))
             elif axes == 2:
                 if self.rank < 2 or other.rank < 2:
                     raise ValueError("Both tensors must have rank >=2")
                 get_slice_index = lambda i,j,rank: (i,j,) +(slice(None,None,None),)*(rank-2)
                 if self.rank ==2 or other.rank==2:
-                     C = sum((np.multiply(
+                     C = sum((torch.multiply(
                             self[get_slice_index(i,j,self.rank)],
                             other[get_slice_index(i,j,other.rank)])
                          for i in range(self.dim) for j in range(other.dim)),
-                        start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
+                        start=TorchSymmetricTensor(self.rank + other.rank - 4, self.dim))
                 else:
                     C = sum((np.multiply.outer(
                                 self[get_slice_index(i,j,self.rank)],
                                 other[get_slice_index(i,j,other.rank)])
                              for i in range(self.dim) for j in range(other.dim)),
-                            start=SymmetricTensor(self.rank + other.rank - 4, self.dim))
+                            start=TorchSymmetricTensor(self.rank + other.rank - 4, self.dim))
                 return C
             else:
                 raise NotImplementedError("tensordot is currently implemented only for 'axes'= 0, 1, 2. "
@@ -423,7 +431,7 @@ class TorchSymmetricTensor(SymmetricTensor):
                 C = sum((np.multiply.outer(self[get_slice_index(idx,self.rank)],
                                            other[get_slice_index(idx,other.rank)])
                          for idx in itertools.product(range(self.dim),repeat = rank_deduct)),
-                        start=SymmetricTensor(self.rank + other.rank - 2*rank_deduct, self.dim))
+                        start=TorchSymmetricTensor(self.rank + other.rank - 2*rank_deduct, self.dim))
                 return C
             elif isinstance(axes1,int):
                 if not isinstance(axes2,int):
@@ -446,24 +454,42 @@ class TorchSymmetricTensor(SymmetricTensor):
         if current tensor has rank 3.
         """
 
-        C = SymmetricTensor(rank = self.rank, dim = self.dim)
-
-        def _index_perm_prod_sum(W, idx_fixed, idx_permute):
-            '''
-            For index_fixed = (j_1, ... j_r)
-            \sum_{(i_1, ... i_r) in σ(idx_permute)} W_{i_1,j_1} ... W_{i_n, j_n}
-            where σ(idx_permute) are all unique permutations.
-            '''
-            idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
-            permutations_of_identical_idx = np.prod([math.factorial(r) for r in idx_repeats])
-            matr = np.array([[W[i,j] for i,j in zip(σidx,idx_fixed)]
-                              for σidx in itertools.permutations(idx_permute)])
-            return np.sum( np.prod(matr, axis =1)) /permutations_of_identical_idx
-
-
-        for σcls in self.perm_classes:
-            C[σcls] = [ np.sum([_index_perm_prod_sum(W, idx_fixed, idx_permute)*self[idx_permute]
-                          for idx_permute in self.index_class_iter()]) for idx_fixed in self.index_class_iter(class_label= σcls) ]
+        C = TorchSymmetricTensor(rank = self.rank, dim = self.dim)
+        if self.rank == 1: 
+            return torch.tensordot(W,self['i'], dims =1, device = self._device)
+        if self.rank == 2: 
+            for i in range(0, self.dim): 
+                y = W[:,i]
+                t_1 = torch.tensordot(self.to_dense(),y, dims = 1, device= self._device) 
+                for j in range(0, i+1):
+                    y = W[:,j]
+                    C[i,j] = torch.tensordot(t_1, y, dims =1, device = self._device)
+        if self.rank == 3:
+            for i in range(0, self.dim): 
+                y = TorchSymmetricTensor(rank =1, dim = self.dim)
+                y['i'] = W[:,i]
+                t_1 = self.tensordot(y, axes = 1).todense() #t_1 is matrix 
+                for j in range(0, i+1): 
+                    y = W[:,j]
+                    t_2 = torch.tensordot(t_1,y, dims = 1, device= self._device) 
+                    for k in range(0, j+1):
+                        y = W[:,k]
+                        C[i,j,k] = torch.tensordot(t_2, y, dims =1, device = self._device)
+        elif self.rank == 4: 
+            for i in range(0, self.dim): 
+                y = TorchSymmetricTensor(rank =1, dim = self.dim)
+                y['i'] = W[:,i]
+                t_1 = self.tensordot(y, axes = 1) 
+                for j in range(0, i+1): 
+                    y = TorchSymmetricTensor(rank =1, dim = self.dim)
+                    y['i'] = W[:,j]
+                    t_2 = t_1.tensordot(y, axes = 1).todense() #t_2 is matrix 
+                    for k in range(0, j+1): 
+                        y = W[:,k]
+                        t_3 = torch.tensordot(t_2,y, dims = 1, device= self._device)
+                        for l in range(0, k+1):
+                            y = W[:,l]
+                            C[i,j,k,l] = torch.tensordot(t_3,y, dims = 1, device= self._device)
 
         return C
 
@@ -485,11 +511,11 @@ class TorchSymmetricTensor(SymmetricTensor):
         if not n_times <= self.rank:
             raise ValueError(f"n_times is {n_times}, but cannot do more contractions than {self.rank} with tensor of rank {self.rank}")
         for list_entry in tensor_list:
-            if not isinstance(list_entry, SymmetricTensor):
+            if not isinstance(list_entry, TorchSymmetricTensor):
                 raise  TypeError("tensor_list entries must be SymmetricTensors")
         if self.rank ==1 and n_times ==1:
             return sum((tensor_list[i]*self[i] for i in range(self.dim)),
-                        start=SymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
+                        start=TorchSymmetricTensor(tensor_list[0].rank, tensor_list[0].dim))
         else:
             get_slice_index = lambda idx,rank: idx +(slice(None,None,None),)*(rank-n_times)
             if rule == 'second_half':
@@ -499,7 +525,7 @@ class TorchSymmetricTensor(SymmetricTensor):
             else:
                 indices = itertools.product(range(self.dim), repeat = n_times)
             chi_rank = tensor_list[0].rank
-            C = SymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
+            C = TorchSymmetricTensor(dim = self.dim, rank = self.rank +(chi_rank-1)*n_times) #one dimension used for contraction
             if n_times < self.rank:
                 for idx in indices:
                     slice_idx = get_slice_index(idx, self.rank)
@@ -520,25 +546,15 @@ class TorchSymmetricTensor(SymmetricTensor):
         if np.isclose(x,np.zeros(self.dim)).all():
             return 0
         else:
-            vec = SymmetricTensor(rank =1, dim = self.dim)
+            vec = TorchSymmetricTensor(rank =1, dim = self.dim)
             vec['i'] = x
             C = self.copy()
             for r in range(self.rank):
                 C = C.tensordot(vec, axes =1)
             return C
 
-    ## Public attributes & API ##
-
-    @property
-    def dtype(self) -> np.dtype:
-        return self._dtype
-
-    @property
-    def shape(self) -> Tuple[int,...]:
-        return (self.dim,)*self.rank
-
-    def todense(self) -> Array:
-        A = np.empty(self.shape, self.dtype)
+    def todense(self) -> TorchTensor:
+        A = torch.empty(self.shape)
         for idx, value in zip(self.index_iter(), self.indep_iter()):
             A[idx] = value
         return A
@@ -559,7 +575,7 @@ class TorchSymmetricTensor(SymmetricTensor):
         for v, size, mult in zip(self._data.values(),
                                  self._class_sizes.values(),
                                  self._class_multiplicities.values()):
-            if np.isscalar(v):
+            if v.ndim == 0:
                 yield from itertools.repeat(v, size*mult)
             else:
                 for vi in v:
@@ -655,16 +671,17 @@ if __name__ == "__main__":
     assert sum_entries_check == sum_entries
 
 # %% [markdown]
-# ### Serialization
+# ### Serialization 
+# Still to do:
 
-    # %%
-    class Foo(BaseModel):
-        A: SymmetricTensor
-        class Config:
-            json_encoders = {Serializable: Serializable.json_encoder}
-    foo = Foo(A=A)
-    foo2 = Foo.parse_raw(foo.json())
-    assert foo2.json() == foo.json()
+# %% [markdown]
+#     class Foo(BaseModel):
+#         A: SymmetricTensor
+#         class Config:
+#             json_encoders = {Serializable: Serializable.json_encoder}
+#     foo = Foo(A=A)
+#     foo2 = Foo.parse_raw(foo.json())
+#     assert foo2.json() == foo.json()
 
 # %% [markdown]
 # ### Avoiding array coercion
@@ -740,23 +757,22 @@ if __name__ == "__main__":
     rank = 4
     dim = 2
     #test addition
-    test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
-    test_tensor_1['iiii'] = np.random.rand(2)
+    test_tensor_1 = TorchSymmetricTensor(rank=rank, dim=dim)
+    test_tensor_1['iiii'] = torch.randn(2)
     test_tensor_2 = np.add(test_tensor_1,1.0)
-    test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
+    test_tensor_3 = TorchSymmetricTensor(rank=rank, dim=dim)
     for σcls in test_tensor_3.perm_classes:
                 test_tensor_3[σcls] = 1.0
     test_tensor_4 =  test_tensor_2 - test_tensor_3
-    print(test_tensor_1, test_tensor_4)
-    assert test_tensor_4.is_equal(test_tensor_1, prec =1e-10)
+    assert test_tensor_4.is_equal(test_tensor_1, prec =1e-5)
     test_tensor_5 = np.multiply(test_tensor_2, -1)
     test_tensor_6 = np.multiply(test_tensor_5, -1)
     #test multiplication
-    assert test_tensor_6.is_equal(test_tensor_2, prec =1e-10)
+    assert test_tensor_6.is_equal(test_tensor_2, prec =1e-5)
     test_tensor_7 = np.exp(test_tensor_2)
     test_tensor_8 = np.log(test_tensor_7)
     #test log, exp
-    assert test_tensor_8.is_equal(test_tensor_2, prec =1e-10)
+    assert test_tensor_8.is_equal(test_tensor_2, prec =1e-5)
 
 # %% [markdown]
 # ### Tensordot
@@ -769,8 +785,9 @@ if __name__ == "__main__":
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-    prec =1e-10
+    prec =1e-5
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
+    print(test_tensor_3.todense(),abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))))
     assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).all()
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
     assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
@@ -805,7 +822,7 @@ if __name__ == "__main__":
         dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =2 ))
-        if isinstance(test_tensor_15, SymmetricTensor):
+        if isinstance(test_tensor_15, TorchSymmetricTensor):
             assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
         else:
             assert test_tensor_15 == dense_tensor_15
@@ -838,7 +855,7 @@ if __name__ == "__main__":
 # %%
 if __name__ == "__main__":
 
-    A = SymmetricTensor(rank = 3, dim=3)
+    A = TorchSymmetricTensor(rank = 3, dim=3)
     A[0,0,0] =1
     A[0,0,1] =-12
     A[0,1,2] = 0.5
@@ -848,19 +865,19 @@ if __name__ == "__main__":
     A[1,1,1] =-0.3
     A[0,1,1] = 13
     A[2,1,1] = -6
-    W = np.random.rand(3,3)
-    W1 = np.random.rand(3,3)
-    W2 = np.random.rand(3,3)
+    W = torch.randn(3,3)
+    W1 = torch.randn(3,3)
+    W2 = torch.randn(3,3)
     assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
     assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
     assert np.isclose(A.contract_all_indices(W2).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).all()
 
-    B = SymmetricTensor(rank = 4, dim =4)
-    B['iiii'] = np.random.rand(4)
+    B = TorchSymmetricTensor(rank = 4, dim =4)
+    B['iiii'] = torch.randn(4)
     B['ijkl'] =12
-    B['iijj'] = np.random.rand(6)
+    B['iijj'] = torch.randn(6)
     B['ijkk'] =-0.5
-    W = np.random.rand(4,4)
+    W = torch.randn(4,4)
     C = B.contract_all_indices(W)
     W1 = np.random.rand(4,4)
     W2 = np.random.rand(4,4)
