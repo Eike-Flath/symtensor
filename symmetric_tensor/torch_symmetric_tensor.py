@@ -36,8 +36,8 @@ from statGLOW.smttask_ml.scityping import Serializable, TorchTensor, DType
 import pytest
 from statGLOW.utils import does_not_warn
 from collections import Counter
-from statGLOW.stats.symmetric_tensor.symmetric_tensor import *
-from statGLOW.stats.symmetric_tensor.symmetric_tensor import _get_perm_class,_get_perm_class_size
+from statGLOW.stats.symmetric_tensor import *
+from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts
 
 # %%
 if __name__ == "__main__":
@@ -99,10 +99,10 @@ __all__ = ["TorchSymmetricTensor"]
 # To do this we must: 
 #   - [x] Rewrite `__init__` to define the device
 #   - [ ] Ensure that data is stored on GPU:
-#     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
-#     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
-#     - [ ] Rewrite `__getitem__` for pytorch **(?)**
-#     - [ ] Rewrite `indep_iter` for pytorch
+#     - [x] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
+#     - [x] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
+#     - [x] Rewrite `__getitem__` for pytorch **(?)**
+#     - [x] Rewrite `indep_iter` for pytorch
 #   - [ ] Ensure data manipulations are done on GPU: 
 #      - [ ] Rewrite `__array_ufunc_` for torch functions
 #      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
@@ -143,14 +143,14 @@ class TorchSymmetricTensor(SymmetricTensor):
                                      "to set tensor values.")
         #initialize as empty Tensor
         super(TorchSymmetricTensor, self).__init__(rank, dim, data = None, dtype = None)
-        #data in pytorch
-        self._data = {tuple(repeats): torch.tensor(0.0)
-                      for repeats in _indexcounts(rank, rank, rank)}
         #set device  
         if torch.cuda.is_available():
             self._device = torch.device('cuda')
         else:
             self._device = torch.device('cpu')
+        #data in pytorch
+        self._data = {tuple(repeats): torch.tensor(0.0).to(device=self._device)
+                      for repeats in _indexcounts(rank, rank, rank)}
         
 
 
@@ -587,7 +587,7 @@ class TorchSymmetricTensor(SymmetricTensor):
         """
         if class_label is None:
             for v, size in zip(self._data.values(), self._class_sizes.values()):
-                if v.dim==0:
+                if v.ndim == 0:
                     yield from itertools.repeat(v, size)
                 else:
                     yield from v
@@ -595,7 +595,7 @@ class TorchSymmetricTensor(SymmetricTensor):
             self._check_class_label(class_label)
             repeats = self.get_class_tuple(class_label)
             v = self._data[repeats]
-            if v.dim==0:
+            if v.ndim==0:
                 size = self._class_sizes[repeats]
                 yield from itertools.repeat(v, size)
             else:
@@ -642,24 +642,17 @@ if __name__ == "__main__":
     assert B[2,2] == 3
     assert B['ij'].device == B._device
 
+# %% [markdown]
+# ### `indep_iter`
+# Test iteration over all values.
 
     # %%
-    A = SymmetricTensor(3, 3)
-    A[1, 2, 0] = 1
-    assert np.all(
-        A.todense() ==
-        np.array([[[0., 0., 0.],
-                   [0., 0., 1.],
-                   [0., 1., 0.]],
-
-                  [[0., 0., 1.],
-                   [0., 0., 0.],
-                   [1., 0., 0.]],
-
-                  [[0., 1., 0.],
-                   [1., 0., 0.],
-                   [0., 0., 0.]]])
-    )
+    sum_entries = 1+2+3
+    sum_entries_check = 0
+    for v in B.indep_iter():
+        sum_entries_check += v
+        assert v.device == B._device
+    assert sum_entries_check == sum_entries
 
 # %% [markdown]
 # ### Serialization
