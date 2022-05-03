@@ -37,6 +37,7 @@ import pytest
 from statGLOW.utils import does_not_warn
 from collections import Counter
 from statGLOW.stats.symmetric_tensor.symmetric_tensor import *
+from statGLOW.stats.symmetric_tensor.symmetric_tensor import _get_perm_class,_get_perm_class_size
 
 # %%
 if __name__ == "__main__":
@@ -142,6 +143,9 @@ class TorchSymmetricTensor(SymmetricTensor):
                                      "to set tensor values.")
         #initialize as empty Tensor
         super(TorchSymmetricTensor, self).__init__(rank, dim, data = None, dtype = None)
+        #data in pytorch
+        self._data = {tuple(repeats): torch.tensor(0.0)
+                      for repeats in _indexcounts(rank, rank, rank)}
         #set device  
         if torch.cuda.is_available():
             self._device = torch.device('cuda')
@@ -205,19 +209,19 @@ class TorchSymmetricTensor(SymmetricTensor):
             else:
                 σcls = _get_perm_class(key)
                 vals = self._data[σcls]
-                if torch.ndim(vals) == 0:
+                if vals.ndim == 0:
                     return vals
                 else:
                     σcls, pos = self._convert_dense_index(key)
                     return vals[pos]
         elif self.rank==1 and isinstance(key,int): #special rules for vectors
             vals = self._data[(1,)]
-            return vals if torch.ndim(vals) == 0 else vals[key]
+            return vals if vals.ndim == 0 else vals[key]
         elif self.rank >1 and isinstance(key, int):
             if self.dim ==1:
                 σcls, pos = self._convert_dense_index(key)
                 vals = self._data[σcls]
-                return vals if torch.ndim(vals) == 0 else vals[pos]
+                return vals if vals.ndim == 0 else vals[pos]
             elif self.dim >1:
                 B = SymmetricTensor(rank = self.rank-1, dim = self.dim)
                 for idx in B.index_class_iter():
@@ -228,13 +232,16 @@ class TorchSymmetricTensor(SymmetricTensor):
             raise KeyError(f"{key}")
 
     def __setitem__(self, key, value):
+        if type(value) == int or type(value) == float: 
+            value = torch.tensor(value)
+        assert type(value)==torch.Tensor, "Values must be torch tensors"
         if isinstance(key, str):
             repeats = _get_perm_class(tuple(key))
-            assert type(value)==torch.Tensor, "Values must be torch tensors"
+            
             if repeats not in self._data:
                 raise KeyError(f"'{key}' does not match any permutation class.\n"
                                f"Permutation classes: {self.perm_classes}.")
-            if torch.ndim(value) == 0:
+            if value.ndim == 0:
                 self._data[repeats] = value.to(device=self._device)
             else:
                 if len(value) != _get_perm_class_size(repeats, self.dim):
@@ -614,8 +621,10 @@ if __name__ == "__main__":
 #
 # Test assignement: Assigning one value modifies all associated symmetric components.
 
-    # %%
-    A = SymmetricTensor(1, 3)
+# %%
+if __name__ == "__main__":
+    #test 1-d tensor setting and getting
+    A = TorchSymmetricTensor(1, 3)
     A['i'] = torch.Tensor([1,2,3])
     assert A[0] == 1
     assert A[2] == 3
@@ -623,6 +632,16 @@ if __name__ == "__main__":
     A[0] = -5.1
     assert A[0] == -5.1
     assert A[2] == 3
+    assert A['i'].device == A._device
+    assert A[0].device == A._device
+
+    # %%
+    B = TorchSymmetricTensor(2, 3)
+    B['ii'] = torch.Tensor([1,2,3])
+    assert B[0,0] == 1
+    assert B[2,2] == 3
+    assert B['ij'].device == B._device
+
 
     # %%
     A = SymmetricTensor(3, 3)
