@@ -601,46 +601,6 @@ def partition_list_into_two(lst, size1, size2):
 # - Arithmetic operations are not currently supported.
 #   Elementwise operations between tensors of the same size and rank can be trivially implemented when the need arises; other operations (like `.dot`) should be possible with some more work.
 
-# %% [markdown]
-# ### CPU to GPU: 
-# We want to move heavy calculations from CPU to GPU using `pytorch`. 
-#
-#
-# To do this we must: 
-#   - [ ] Ensure that data is stored on GPU:
-#     I already added a property `SymmetricTensor.device` which should automatically give us the right pytorch device (CPU or GPU)
-#     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
-#     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
-#     - [ ] Rewrite `__getitem__` for pytorch **(?)**
-#     - [ ] Rewrite `indep_iter` for pytorch
-#   - [ ] Ensure data manipulations are done on GPU: 
-#      - [ ] Rewrite `__array_ufunc_` for torch functions
-#      - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
-#      - [ ] Rewrite `tensordot` for pytorch
-#      - [ ] Rewrite `outer_product` for pytorch
-#      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
-#      - [ ] Rewrite `contract_tensor_list` for pytorch
-#      - [ ] Rewrite `poly_term` for pytorch
-#      
-#      
-# We could do this while preserving the functions which use numpy or do everything new in torch. 
-# So either: 
-# ```
-# def some_func(self, ...): 
-#     if self.use_numpy: 
-#        # some numpy code
-#     else: 
-#        # some pytorch code
-# ```
-#
-# or directly do 
-# ```
-# def some_func(self, ...): 
-#     # some pytorch code
-# ```
-#
-# What do you think?
-
 # %%
 class SymmetricTensor(Serializable):
     """
