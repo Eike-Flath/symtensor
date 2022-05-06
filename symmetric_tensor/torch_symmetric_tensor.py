@@ -15,27 +15,31 @@
 # ---
 
 # %% [markdown]
-# # Symmetric tensor class
+# # Symmetric tensor class using Torch
 
 # %%
 from __future__ import annotations
 
 from typing import Union, ClassVar, Iterator, Generator, Dict, List, Tuple, Set
+from pydantic import BaseModel
 from warnings import warn
 from ast import literal_eval
+
 import itertools
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
 import torch
-from pydantic import BaseModel
+
+
 from tqdm.auto import tqdm
 import time
+from collections import Counter
+import pytest
 from mackelab_toolbox.utils import TimeThis
+
 import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, TorchTensor, DType
-import pytest
 from statGLOW.utils import does_not_warn
-from collections import Counter
 from statGLOW.stats.symmetric_tensor import *
 from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two
 
@@ -108,9 +112,10 @@ __all__ = ["TorchSymmetricTensor"]
 #      - [x] Rewrite `__array_function_` for torch functions **if necessary?**
 #      - [x] Rewrite `tensordot` for pytorch
 #      - [x] Rewrite `outer_product` for pytorch
-#      - [ ] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
-#      - [ ] Rewrite `contract_tensor_list` for pytorch
-#      - [ ] Rewrite `poly_term` for pytorch
+#      - [x] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
+#      - [x] Rewrite `contract_tensor_list` for pytorch
+#      - [x] Rewrite `poly_term` for pytorch
+#   - [ ] Ensure correct data types are used
 #      
 #      
 # Question collection: 
@@ -137,19 +142,52 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                  data: Optional[Dict[Union[Tuple[int,...], str],
                                      Array[float,1]]]=None,
                  dtype: Union[None,str,DType]=None):
-        if data:
-            raise NotImplementedError("Initializing TorchSymmetricTensor with data" 
-                                     "is not yet supported. Please use '__setitem__'"
-                                     "to set tensor values.")
         #initialize as empty Tensor
         super(TorchSymmetricTensor, self).__init__(rank, dim, data = None, dtype = None)
+        #populate with data
+        if data:
+            if isinstance(data, np.ndarray):
+                raise NotImplementedError("Casting plain arrays to SymmetricTensor "
+                                          "is not yet supported.")
+                # TODO: Check that the array is symmetric, then extract values.
+            elif not isinstance(data, dict):
+                raise TypeError("If provided, `data` must be a dictionary with "
+                                "the format {σ class: data vector}")
+            # If `data` comes from serialized JSON; revert strings to tuples
+            for key in list(data):
+                if isinstance(key, str):
+                    newkey = literal_eval(key)  # NB: That this is Tuple[int] is verified below
+                    if newkey in data:
+                        raise ValueError(f"`data` contains the key '{key}' "
+                                         "twice: in both its original and "
+                                         "serialized (str) form.")
+                    data[newkey] = data[key]
+                    del data[key]
+            # Assert that the deserialized data has the right shape
+            if data.keys() != self._data.keys():
+                raise ValueError("`data` argument to SymmetricTensor does not "
+                                 "have the expected format.\nExpected keys: "
+                                 f"{sorted(self._data)}\nReceived keys:{sorted(data)}")
+            for k, v in data.items():
+                if isinstance(v, torch.Tensor) and v.shape != (self._class_sizes[k],):
+                    raise ValueError(f"Data for permutation class {self.get_class_label} "
+                                     f"should have shape {(self._class_sizes[k],)}, "
+                                     f"but the provided data has shape {v.shape}.")
+            # Replace blank data with the provided data
+            self._data = {k: v.astype(dtype) if hasattr(v, 'astype')
+                             else self._dtype.type(v)
+                          for k, v in data.items()}
         #set device  
         if torch.cuda.is_available():
             self._device = torch.device('cuda')
         else:
             self._device = torch.device('cpu')
         #data in pytorch
-        self._data = {tuple(repeats): torch.tensor(0.0).to(device=self._device)
+        if dtype is not None: 
+            self._data = {tuple(repeats): torch.tensor(0.0, dtype = dtype).to(device=self._device)
+                      for repeats in _indexcounts(rank, rank, rank)}
+        else: 
+            self._data = {tuple(repeats): torch.tensor(0.0, dtype = dtype).to(device=self._device)
                       for repeats in _indexcounts(rank, rank, rank)}
         
 
@@ -201,7 +239,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
 
                 if not subslicing:
                     new_rank = self.rank -len(indices_fixed)
-                    C = SymmetricTensor(rank = new_rank, dim = self.dim)
+                    C = TorchSymmetricTensor(rank = new_rank, dim = self.dim)
                     for idx in C.index_class_iter():
                         C[idx] = self[idx +indices_fixed]
                     return C
@@ -223,7 +261,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                 vals = self._data[σcls]
                 return vals if vals.ndim == 0 else vals[pos]
             elif self.dim >1:
-                B = SymmetricTensor(rank = self.rank-1, dim = self.dim)
+                B = TorchSymmetricTensor(rank = self.rank-1, dim = self.dim)
                 for idx in B.index_class_iter():
                     B[idx] = self[idx+(key,)]
 
@@ -456,14 +494,14 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
 
         C = TorchSymmetricTensor(rank = self.rank, dim = self.dim)
         if self.rank == 1: 
-            return torch.tensordot(W,self['i'], dims =1, device = self._device)
+            return torch.tensordot(W,self['i'], dims =1)
         if self.rank == 2: 
             for i in range(0, self.dim): 
                 y = W[:,i]
-                t_1 = torch.tensordot(self.to_dense(),y, dims = 1, device= self._device) 
+                t_1 = torch.tensordot(self.to_dense(),y, dims = 1) 
                 for j in range(0, i+1):
                     y = W[:,j]
-                    C[i,j] = torch.tensordot(t_1, y, dims =1, device = self._device)
+                    C[i,j] = torch.tensordot(t_1, y, dims =1)
         if self.rank == 3:
             for i in range(0, self.dim): 
                 y = TorchSymmetricTensor(rank =1, dim = self.dim)
@@ -471,10 +509,10 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                 t_1 = self.tensordot(y, axes = 1).todense() #t_1 is matrix 
                 for j in range(0, i+1): 
                     y = W[:,j]
-                    t_2 = torch.tensordot(t_1,y, dims = 1, device= self._device) 
+                    t_2 = torch.tensordot(t_1,y, dims = 1) 
                     for k in range(0, j+1):
                         y = W[:,k]
-                        C[i,j,k] = torch.tensordot(t_2, y, dims =1, device = self._device)
+                        C[i,j,k] = torch.tensordot(t_2, y, dims =1)
         elif self.rank == 4: 
             for i in range(0, self.dim): 
                 y = TorchSymmetricTensor(rank =1, dim = self.dim)
@@ -486,10 +524,10 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                     t_2 = t_1.tensordot(y, axes = 1).todense() #t_2 is matrix 
                     for k in range(0, j+1): 
                         y = W[:,k]
-                        t_3 = torch.tensordot(t_2,y, dims = 1, device= self._device)
+                        t_3 = torch.tensordot(t_2,y, dims = 1)
                         for l in range(0, k+1):
                             y = W[:,l]
-                            C[i,j,k,l] = torch.tensordot(t_3,y, dims = 1, device= self._device)
+                            C[i,j,k,l] = torch.tensordot(t_3,y, dims = 1)
 
         return C
 
@@ -616,6 +654,13 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                 yield from itertools.repeat(v, size)
             else:
                 yield from v
+                
+                
+    def copy(self):
+        '''
+        Return a copy of the current tensor
+        '''
+        return TorchSymmetricTensor(dim = self.dim, rank = self.rank, data = self._data.copy())
 
 
 # %% [markdown]
@@ -684,64 +729,6 @@ if __name__ == "__main__":
 #     assert foo2.json() == foo.json()
 
 # %% [markdown]
-# ### Avoiding array coercion
-#
-# `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
-
-# %% [markdown]
-# if __name__ == "__main__":
-#     A = SymmetricTensor(rank=2, dim=3)
-#     B = SymmetricTensor(rank=2, dim=3)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # `like` argument is supported and avoids the conversion to dense array
-#     with does_not_warn(UserWarning):
-#         assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
-
-# %% [markdown]
-# Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
-
-# %% [markdown]
-#     # Context manager works as expected…
-#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-#     # …and returns the module to its clean state on exit…
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # …even when an error is raised within the context.
-#     try:
-#         with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-#             raise ValueError
-#     except ValueError:
-#         pass
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-
-# %% [markdown]
-# Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
-
-# %% [markdown]
-#     with does_not_warn(UserWarning):
-#         np.einsum_path("ij,ik", A, B)
-#         np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-#
-#     with make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         with does_not_warn(UserWarning):
-#             np.einsum_path("ij,ik", A, B)
-#             np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-
-# %% [markdown]
-# ### WIP
-#
-# *Ordering permutation classes.*
-# At some point I thought I would need a scheme for ordering permutation classes (for implementing a hierarchy, where e.g. `'ijkl'` can be used as a default for `'iijk'`). I save it here in case it turns out to be useful after all.
-#
-# [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCLigZ1cIl1cbiAgXG4gICAgc3R5bGUgTiBmaWxsOm5vbmUsIHN0cm9rZTpub25lIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifSwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)](https://mermaid-js.github.io/mermaid-live-editor/edit##eyJjb2RlIjoiZ3JhcGggVERcbiAgICBBW1wiQSA9IGlqa-KAplwiXSAtLT4gQ3t7XCJuQSA6PSAjIGRpZmZlcmVudCBpbmRpY2VzIGluIEE8YnI-bkIgOj0gIyBkaWZmZXJlbnQgaW5kaWNlcyBpbiBCPGJyPkUuZy4gaWlpaSA8IGlpampcIn19XG4gICAgQltcIkIgPSBpamvigKZcIl0gLS0-IENcbiAgICBDIC0tPnxuQSA8IG5CfCBEW0EgPCBCXVxuICAgIEMgLS0-fG5BID4gbkJ8IEVbQSA-IEJdXG4gICAgQyAtLT58bkEgPSBuQnwgRnt7XCJjQSA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQTxicj5jQiA6PSAjIGRpZmZlcmVudCBpbmRleCBjb3VudHMgaW4gQjxicj5FLmcuIGlpamogPCBpaWlqXCJ9fVxuICAgIEYgLS0-fGNBIDwgY0J8IEdbQSA8IEJdXG4gICAgRiAtLT58Y0EgPiBjQnwgSFtBID4gQl1cbiAgICBGIC0tPnxjQSA9IGNCfCBJe3tcIm1BIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBBPGJyPm1CIDo9IGxvd2VzdCBpbmRleCBjb3VudCBpbiBCPGJyPkUuZy4gaWlpamogPCBpaWlpalwifX1cbiAgICBJIC0tPnxtQSA8IG1CfCBKW0EgPCBCXVxuICAgIEkgLS0-fG1BID4gbUJ8IEtbQSA-IEJdXG4gICAgSSAtLT58bUEgPSBtQnwgTXt7XCJzZWNvbmQgbG93ZXN0IGluZGV4IGNvdW50XCJ9fVxuICAgIE0gLS0-IE5bXCJcdOKBnVwiXVxuICBcbiAgICBzdHlsZSBOIGZpbGw6bm9uZSwgc3Ryb2tlOm5vbmUiLCJtZXJtYWlkIjoie1xuICBcInRoZW1lXCI6IFwiZGVmYXVsdFwiXG59IiwidXBkYXRlRWRpdG9yIjpmYWxzZSwiYXV0b1N5bmMiOnRydWUsInVwZGF0ZURpYWdyYW0iOmZhbHNlfQ)
-
-# %% [markdown]
 # ## Arithmetic
 
 # %%
@@ -785,10 +772,9 @@ if __name__ == "__main__":
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-    prec =1e-5
+    prec =1e-3
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    print(test_tensor_3.todense(),abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))))
-    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).all()
+    assert np.isclose(test_tensor_8.todense().numpy(),symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).all()
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
     assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
 
@@ -813,7 +799,7 @@ if __name__ == "__main__":
         dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =1 ))
-        assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
+        assert np.isclose(test_tensor_14.todense(), dense_tensor_14).any()
         test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
         assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
 
@@ -823,7 +809,7 @@ if __name__ == "__main__":
                                                   tensor_2.todense(),
                                                   axes =2 ))
         if isinstance(test_tensor_15, TorchSymmetricTensor):
-            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
+            assert np.isclose(test_tensor_15.todense(),dense_tensor_15).all()
         else:
             assert test_tensor_15 == dense_tensor_15
 
@@ -838,9 +824,9 @@ if __name__ == "__main__":
             dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =((0,1,2),(2,0,1)) ))
-            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
+            assert np.isclose(test_tensor_16.todense(), dense_tensor_16).all()
+            assert np.isclose(test_tensor_16.todense(), dense_tensor_161).all()
+            assert np.isclose(test_tensor_16.todense(), dense_tensor_162).all()
 
     for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
         for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
@@ -879,8 +865,8 @@ if __name__ == "__main__":
     B['ijkk'] =-0.5
     W = torch.randn(4,4)
     C = B.contract_all_indices(W)
-    W1 = np.random.rand(4,4)
-    W2 = np.random.rand(4,4)
+    W1 = torch.randn(4,4)
+    W2 = torch.randn(4,4)
     assert np.isclose(C.contract_all_indices(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
     assert np.isclose(C.contract_all_indices(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
     assert np.isclose(C.contract_all_indices(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
@@ -893,17 +879,17 @@ if __name__ == "__main__":
 if __name__=="__main__":
     dim = 4
     for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
-        test_tensor = SymmetricTensor(rank =3, dim = dim)
-        test_tensor['iii'] = np.random.rand(dim)
-        test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
-        test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
+        test_tensor = TorchSymmetricTensor(rank =3, dim = dim)
+        test_tensor['iii'] = torch.randn(dim)
+        test_tensor['ijk'] = torch.randn(int(dim*(dim-1)*(dim-2)/6))
+        test_tensor['iij'] = torch.randn(int(dim*(dim-1)))
 
         tensor_list = []
         chi_dense = np.zeros( (dim,)*3)
         def get_random_symtensor_rank2(dim):
-            tensor = SymmetricTensor(rank=2, dim =dim)
-            tensor['ii'] = np.random.rand(dim)
-            tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
+            tensor = TorchSymmetricTensor(rank=2, dim =dim)
+            tensor['ii'] = torch.randn(dim)
+            tensor['ij'] = torch.randn(int((dim**2 -dim)/2))
             return tensor
         for i in range(dim):
             random_tensor = get_random_symtensor_rank2(dim)
@@ -964,32 +950,3 @@ if __name__ == "__main__":
     #test copying
     C = A.copy()
     assert C.is_equal(A)
-
-# %% [markdown]
-# ## Slowness of slicing
-# Some tests to see where slowness could come from:
-
-# %%
-if __name__=="__main__":
-    TimeThis.on= True
-    with TimeThis("check slicing speed"):
-        D = A[0]
-
-
-# %% [markdown]
-# ### slowness of outer product:
-#
-
-# %%
-if __name__=="__main__":
-    for rank in [3]:
-        for dim in [50]:
-            vect = SymmetricTensor(rank=1, dim=dim)
-            vect['i'] = np.random.rand(dim)
-            print('rank = ', rank)
-            print('dim = ', dim)
-            with TimeThis('pos_dict_creation'):
-                x = pos_dict[rank,dim]
-            with TimeThis('outer product'):
-                # vect x vect x vect ... x vect
-                A = vect.outer_product([vect,]*(rank-1))
