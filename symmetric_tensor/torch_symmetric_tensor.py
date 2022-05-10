@@ -41,7 +41,7 @@ import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, TorchTensor, DType
 from statGLOW.utils import does_not_warn
 from statGLOW.stats.symmetric_tensor import *
-from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two
+from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two, multinom
 
 # %%
 if __name__ == "__main__":
@@ -102,6 +102,8 @@ __all__ = ["TorchSymmetricTensor"]
 #
 # To do this we must: 
 #   - [x] Rewrite `__init__` to define the device
+#   - [x] initialize with data
+#   - [x] write copy()
 #   - [ ] Ensure that data is stored on GPU:
 #     - [x] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
 #     - [x] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
@@ -120,6 +122,7 @@ __all__ = ["TorchSymmetricTensor"]
 #      
 # Question collection: 
 # -  For serialisation: Does `Array` include `torch.Tensor`?
+#
 
 # %%
 class TorchSymmetricTensor(PermClsSymmetricTensor):
@@ -140,12 +143,29 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
 
     def __init__(self, rank: int, dim: int,
                  data: Optional[Dict[Union[Tuple[int,...], str],
-                                     Array[float,1]]]=None,
+                                     TorchTensor[float,1]]]=None,
                  dtype: Union[None,str,DType]=None):
-        #initialize as empty Tensor
-        super(TorchSymmetricTensor, self).__init__(rank, dim, data = None, dtype = None)
-        #populate with data
+        
+        self.rank = rank
+        self.dim = dim
+        if dtype is None:
+            dtype = torch.double
+        self._dtype = dtype
+        #set device  
+        if torch.cuda.is_available():
+            self._device = torch.device('cuda')
+        else:
+            self._device = torch.device('cpu')
+        self._data = {tuple(repeats): torch.tensor(0.0, dtype = dtype).to(device=self._device)
+                          for repeats in _indexcounts(rank, rank, rank)}
+        self._class_sizes = {tuple(repeats): _get_perm_class_size(repeats, self.dim)
+                             for repeats in self._data}
+        self._class_multiplicities = {tuple(repeats): multinom(self.rank, repeats)
+                                      for repeats in self._data}
+        
+        #data in pytorch
         if data:
+            #populate with data
             if isinstance(data, np.ndarray):
                 raise NotImplementedError("Casting plain arrays to SymmetricTensor "
                                           "is not yet supported.")
@@ -174,22 +194,9 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                                      f"should have shape {(self._class_sizes[k],)}, "
                                      f"but the provided data has shape {v.shape}.")
             # Replace blank data with the provided data
-            self._data = {k: v.astype(dtype) if hasattr(v, 'astype')
-                             else self._dtype.type(v)
+            self._data = {k: v.to(device = self._device, dtype = dtype)
                           for k, v in data.items()}
-        #set device  
-        if torch.cuda.is_available():
-            self._device = torch.device('cuda')
-        else:
-            self._device = torch.device('cpu')
-        #data in pytorch
-        if dtype is not None: 
-            self._data = {tuple(repeats): torch.tensor(0.0, dtype = dtype).to(device=self._device)
-                      for repeats in _indexcounts(rank, rank, rank)}
-        else: 
-            self._data = {tuple(repeats): torch.tensor(0.0, dtype = dtype).to(device=self._device)
-                      for repeats in _indexcounts(rank, rank, rank)}
-        
+
 
 
     ## Pydantic serialization ##
@@ -280,14 +287,14 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                 raise KeyError(f"'{key}' does not match any permutation class.\n"
                                f"Permutation classes: {self.perm_classes}.")
             if value.ndim == 0:
-                self._data[repeats] = value.to(device=self._device)
+                self._data[repeats] = value.to(device=self._device, dtype = self._dtype)
             else:
                 if len(value) != _get_perm_class_size(repeats, self.dim):
                     raise ValueError(
                         "Value must either be a scalar, or match the index "
                         f"class size.\nValue size: {len(value)}\n"
                         f"Permutation class size: {_get_perm_class_size(repeats, self.dim)}")
-                self._data[repeats] = value.to(device=self._device) # put data on gpu/cpu
+                self._data[repeats] = value.to(device = self._device, dtype = self._dtype)
         else:
             if self.rank==1 and isinstance(key,int): #special rules for vectors
                 σcls = (1,)
@@ -303,11 +310,11 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                     pass
                 else:
                     # Value is no longer uniform for all positions => need to expand storage from scalar to vector
-                    v = v * torch.ones(self._class_sizes[σcls], device = self._device)
-                    v[pos] = value.to(device=self._device)
+                    v = v * torch.ones(self._class_sizes[σcls], device = self._device, dtype=self._dtype)
+                    v[pos] = value.to(device=self._device, dtype = self._dtype)
                     self._data[σcls] = v
             else:
-                self._data[σcls][pos] = value.to(device=self._device)
+                self._data[σcls][pos] = value.to(device=self._device, dtype = self._dtype)
 
     ## Numpy dispatch protocols ##
 
@@ -493,40 +500,41 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
         """
 
         C = TorchSymmetricTensor(rank = self.rank, dim = self.dim)
+        W1 = W.to(device = self._device, dtype = self._dtype)
         if self.rank == 1: 
-            return torch.tensordot(W,self['i'], dims =1)
+            return torch.tensordot(W1,self['i'], dims =1)
         if self.rank == 2: 
             for i in range(0, self.dim): 
-                y = W[:,i]
+                y = W1[:,i]
                 t_1 = torch.tensordot(self.to_dense(),y, dims = 1) 
                 for j in range(0, i+1):
-                    y = W[:,j]
+                    y = W1[:,j]
                     C[i,j] = torch.tensordot(t_1, y, dims =1)
         if self.rank == 3:
             for i in range(0, self.dim): 
                 y = TorchSymmetricTensor(rank =1, dim = self.dim)
-                y['i'] = W[:,i]
+                y['i'] = W1[:,i]
                 t_1 = self.tensordot(y, axes = 1).todense() #t_1 is matrix 
                 for j in range(0, i+1): 
-                    y = W[:,j]
+                    y = W1[:,j]
                     t_2 = torch.tensordot(t_1,y, dims = 1) 
                     for k in range(0, j+1):
-                        y = W[:,k]
+                        y = W1[:,k]
                         C[i,j,k] = torch.tensordot(t_2, y, dims =1)
         elif self.rank == 4: 
             for i in range(0, self.dim): 
                 y = TorchSymmetricTensor(rank =1, dim = self.dim)
-                y['i'] = W[:,i]
+                y['i'] = W1[:,i]
                 t_1 = self.tensordot(y, axes = 1) 
                 for j in range(0, i+1): 
                     y = TorchSymmetricTensor(rank =1, dim = self.dim)
-                    y['i'] = W[:,j]
+                    y['i'] = W1[:,j]
                     t_2 = t_1.tensordot(y, axes = 1).todense() #t_2 is matrix 
                     for k in range(0, j+1): 
-                        y = W[:,k]
+                        y = W1[:,k]
                         t_3 = torch.tensordot(t_2,y, dims = 1)
                         for l in range(0, k+1):
-                            y = W[:,l]
+                            y = W1[:,l]
                             C[i,j,k,l] = torch.tensordot(t_3,y, dims = 1)
 
         return C
@@ -592,7 +600,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
             return C
 
     def todense(self) -> TorchTensor:
-        A = torch.empty(self.shape)
+        A = torch.empty(self.shape, dtype = self._dtype)
         for idx, value in zip(self.index_iter(), self.indep_iter()):
             A[idx] = value
         return A
@@ -691,7 +699,7 @@ if __name__ == "__main__":
     assert A[2] == 3
     
     A[0] = -5.1
-    assert A[0] == -5.1
+    assert torch.isclose(A[0],torch.tensor(-5.1, dtype = A[0].dtype))
     assert A[2] == 3
     assert A['i'].device == A._device
     assert A[0].device == A._device
@@ -764,6 +772,9 @@ if __name__ == "__main__":
 # %% [markdown]
 # ### Tensordot
 
+# %% [markdown]
+# first, check how precise torch is. 
+
 # %%
 if __name__ == "__main__":
     #outer product
@@ -772,11 +783,12 @@ if __name__ == "__main__":
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-    prec =1e-3
+    atol = 1e-10
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    assert np.isclose(test_tensor_8.todense().numpy(),symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).all()
+    assert np.isclose(test_tensor_8.todense(),torch.Tensor(symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d))).to( dtype = test_tensor_8._dtype), atol =atol).all()
+    
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
-    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
+    assert torch.isclose(test_tensor_9.todense(), torch.Tensor(symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d))).to( dtype = test_tensor_8._dtype), atol = atol).all()
 
     test_tensor_10 = SymmetricTensor(rank=1, dim=2)
     test_tensor_10['i'] = [1,0]
@@ -785,8 +797,6 @@ if __name__ == "__main__":
     test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
     assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
     assert test_tensor_12['ij'] == 0.5
-
-
 
     # %% tags=[]
     #outer product with tensordot
@@ -844,32 +854,33 @@ if __name__ == "__main__":
     A = TorchSymmetricTensor(rank = 3, dim=3)
     A[0,0,0] =1
     A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-    A[1,1,1] =-0.3
+    A[0,1,2] = 5
+    A[2,2,2] = 1
+    A[0,2,2] = -30.1
+    A[1,2,2] = 4.0013
+    A[1,1,1] =-3
     A[0,1,1] = 13
     A[2,1,1] = -6
     W = torch.randn(3,3)
     W1 = torch.randn(3,3)
     W2 = torch.randn(3,3)
-    assert np.isclose(A.contract_all_indices(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
-    assert np.isclose(A.contract_all_indices(W2).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).all()
+    atol = 1e-3
+    assert torch.isclose(A.contract_all_indices(W).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(A.contract_all_indices(W1).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(A.contract_all_indices(W2).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
 
     B = TorchSymmetricTensor(rank = 4, dim =4)
     B['iiii'] = torch.randn(4)
     B['ijkl'] =12
     B['iijj'] = torch.randn(6)
-    B['ijkk'] =-0.5
+    B['ijkk'] =-5
     W = torch.randn(4,4)
     C = B.contract_all_indices(W)
     W1 = torch.randn(4,4)
     W2 = torch.randn(4,4)
-    assert np.isclose(C.contract_all_indices(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
-    assert np.isclose(C.contract_all_indices(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
-    assert np.isclose(C.contract_all_indices(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
+    assert torch.isclose(C.contract_all_indices(W).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(C.contract_all_indices(W1).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(C.contract_all_indices(W2).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
 
 
 # %% [markdown]
