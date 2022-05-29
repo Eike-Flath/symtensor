@@ -1,0 +1,79 @@
+#######################################################################################
+# Jupyter Book configuration file
+
+#######################################################################################
+# Book settings
+title                       : "Symmetric tensor"
+author                      : "Alexandre René, Claudia Merger"
+copyright                   : "2022"
+logo                        : ""
+exclude_patterns            : [_build, Thumbs.db, "**.DS_Store", "**.ipynb_checkpoints",
+                               ".*", "**.egg-info", "*.mypy_cache", "**__pycache__",
+                               "**/*.back", "**/*.back.*", "**tmp", "**.smt",
+                               src, lib, envs, docs,
+                               "**.ipynb"]
+    # NB: 'tmp' only excludes a top-level directory, while '**tmp' excludes
+    #     exclude all subdirs named 'tmp'.
+only_build_toc_files        : false
+
+#######################################################################################
+# Execution settings
+execute:
+  execute_notebooks         : "off"  # Use either "off" or "cache"
+  exclude_patterns          : ["**/*.back.*"]    # A list of patterns to *skip* in execution (e.g. a notebook that takes a really long time)
+  allow_errors              : true
+  timeout                   : -1   # In seconds; -1 => no timeout
+
+#######################################################################################
+# Parse and render settings
+parse:
+  myst_enable_extensions:
+    - amsmath
+    - colon_fence
+    - deflist
+    - dollarmath
+    # - html_admonition
+    - html_image
+    # - linkify
+    # - replacements
+    # - smartquotes
+    - substitution
+  myst_linkify_fuzzy_links: false
+  myst_dmath_double_inline: true    # Allow display math ($$) within an inline context
+
+#######################################################################################
+# HTML-specific settings
+html:
+  use_repository_button: false
+  use_issues_button: false
+  comments:
+    hypothesis: true
+
+#######################################################################################
+# LaTeX-specific settings
+latex:
+  latex_engine              : xelatex  # one of 'pdflatex', 'xelatex' (recommended for unicode), 'luatex', 'platex', 'uplatex'
+  use_jupyterbook_latex     : true # use jupyterbook-latex for pdf builds as default
+
+#######################################################################################
+# Launch button settings
+#launch_buttons:
+#  notebook_interface        : jupyterlab  # The interface interactive links will activate ["classic", "jupyterlab"]
+
+repository:
+  url: https://github.com/alcrene/wcml
+  path_to_book              : ""  # A path to your book's folder, relative to the repository root.
+  branch                    : main  # Which branch of the repository should be used when creating links
+
+#######################################################################################
+# Advanced and power-user settings
+sphinx:
+  extra_extensions          :   # A list of extra extensions to load by Sphinx (added to those already used by JB).
+    # - myst_nb_bokeh
+  local_extensions          :   # A list of local extensions to load by sphinx specified by "name: path" items
+  config:                       # key-value pairs to directly over-ride the Sphinx configuration
+    nb_custom_formats:
+        .py:
+            - jupytext.reads
+            - fmt: py
+    # html_extra_path: ['assets']

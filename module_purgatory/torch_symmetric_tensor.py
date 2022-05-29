@@ -2,16 +2,12 @@
 # ---
 # jupyter:
 #   jupytext:
-#     formats: py:percent,ipynb
-#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-jupytext.kernelspec
+#     formats: py:percent
+#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#   kernelspec:
-#     display_name: statGLOW
-#     language: python
-#     name: statglow
 # ---
 
 # %% [markdown]
@@ -40,8 +36,8 @@ from mackelab_toolbox.utils import TimeThis
 import statGLOW
 from statGLOW.smttask_ml.scityping import Serializable, TorchTensor, DType
 from statGLOW.utils import does_not_warn
-from statGLOW.stats.symmetric_tensor import *
-from statGLOW.stats.symmetric_tensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two, multinom
+from statGLOW.stats.symtensor import *
+from statGLOW.stats.symtensor.symtensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two, multinom
 
 # %%
 if __name__ == "__main__":
@@ -114,9 +110,9 @@ __all__ = ["TorchSymmetricTensor"]
 #      - [x] Rewrite `__array_function_` for torch functions **if necessary?**
 #      - [x] Rewrite `tensordot` for pytorch
 #      - [x] Rewrite `outer_product` for pytorch
-#      - [x] Rewrite `contract_all_indices` for pytorch in Schatz paper fig 3 way
+#      - [x] Rewrite `contract_all_indices_with_matrix` for pytorch in Schatz paper fig 3 way
 #      - [x] Rewrite `contract_tensor_list` for pytorch
-#      - [x] Rewrite `poly_term` for pytorch
+#      - [x] Rewrite `contract_all_indices_with_vector` for pytorch
 #   - [ ] Ensure correct data types are used
 #      
 #      
@@ -419,9 +415,9 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
         elif not isinstance(other, (TorchSymmetricTensor,list)):
             raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
 
-    def tensordot(self, other, axes=2):
+    def tensordot(self, other, axes=2):  # SYMMETRIC ALGEBRA
         """
-        like numpy.tensordot, but outputs are all symmetrized.
+        Like numpy.tensordot, but outputs are all symmetrized.
         """
         if not isinstance(other, TorchSymmetricTensor):
             raise NotImplementedError("Currently only tensor products between SymmetricTensors are supported.")
@@ -490,7 +486,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
             raise NotImplementedError("Tensordot with more axes than two is currently not implemented. "
                                       f"Received: axes={axes}")
 
-    def contract_all_indices(self,W):
+    def contract_all_indices_with_matrix(self,W):
         """
         compute the contraction over all indices with a non-symmetric matrix, e.g.
 
@@ -582,7 +578,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
                     C += tensor_list[idx[0]].outer_product([ tensor_list[i] for i in idx[1:]])*self[slice_idx]
             return C
 
-    def poly_term(self, x):
+    def contract_all_indices_with_vector(self, x):
         """
         for x an array, compute
         \sum_{i_1, ..., i_r} self_{i_1,..., i_r} x_{1_1} ... x_{i_r}
@@ -645,7 +641,7 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
            iterate over all classes.
 
         .. Note:: Can be combined with `index_iter`, `index_class_iter` and
-           `mult_iter`.
+           `permcls_multiplicity_iter`.
         """
         if class_label is None:
             for v, size in zip(self._data.values(), self._class_sizes.values()):
@@ -865,9 +861,9 @@ if __name__ == "__main__":
     W1 = torch.randn(3,3)
     W2 = torch.randn(3,3)
     atol = 1e-3
-    assert torch.isclose(A.contract_all_indices(W).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
-    assert torch.isclose(A.contract_all_indices(W1).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
-    assert torch.isclose(A.contract_all_indices(W2).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(A.contract_all_indices_with_matrix(W).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(A.contract_all_indices_with_matrix(W1).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(A.contract_all_indices_with_matrix(W2).todense(), torch.Tensor(symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
 
     B = TorchSymmetricTensor(rank = 4, dim =4)
     B['iiii'] = torch.randn(4)
@@ -875,12 +871,12 @@ if __name__ == "__main__":
     B['iijj'] = torch.randn(6)
     B['ijkk'] =-5
     W = torch.randn(4,4)
-    C = B.contract_all_indices(W)
+    C = B.contract_all_indices_with_matrix(W)
     W1 = torch.randn(4,4)
     W2 = torch.randn(4,4)
-    assert torch.isclose(C.contract_all_indices(W).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
-    assert torch.isclose(C.contract_all_indices(W1).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
-    assert torch.isclose(C.contract_all_indices(W2).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(C.contract_all_indices_with_matrix(W).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(C.contract_all_indices_with_matrix(W1).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).to( dtype = test_tensor_8._dtype), atol = atol).all()
+    assert torch.isclose(C.contract_all_indices_with_matrix(W2).todense(), torch.Tensor(symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).to( dtype = test_tensor_8._dtype), atol = atol).all()
 
 
 # %% [markdown]
@@ -928,14 +924,14 @@ if __name__ == "__main__":
     x = np.random.rand(3)
     x1 = np.random.rand(3)
     x2 = np.zeros(3)
-    assert np.isclose(A.poly_term(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
-    assert np.isclose(A.poly_term(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
-    #assert np.isclose(A.poly_term(x2), 0)
+    assert np.isclose(A.contract_all_indices_with_vector(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
+    assert np.isclose(A.contract_all_indices_with_vector(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
+    #assert np.isclose(A.contract_all_indices_with_vector(x2), 0)
 
 
 # %%
 if __name__ == "__main__":
-    print(A.poly_term(x2))
+    print(A.contract_all_indices_with_vector(x2))
 
 # %% [markdown]
 # ## Copying and Equality

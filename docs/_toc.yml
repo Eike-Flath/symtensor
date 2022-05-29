@@ -1,0 +1,32 @@
+format: jb-book
+root: README
+
+parts:
+  - caption: Usage examples
+    chapters:
+    - file: Getting_started
+    - file: symtensor_example
+        
+  - caption: Code browser
+    chapters:
+    - file: sources/base
+    - file: symmetric_formats
+      sections:
+      - file: sources/dense_symtensor
+      # - file: sources/permcls_symtensor
+    - file: backends
+      sections:
+      - file: sources/torch_symtensor
+    - file: sources/symalg
+    - file: sources/utils
+
+  - caption: Design
+    chapters:
+    - file: use_case_timings
+      sections:
+      - file: developers/comparitive_timings
+    - file: developers/symmetric_tensor_algdesign
+
+  - caption: Testing
+    chapters:
+    - file: tests/test_dense_numpy

@@ -1,0 +1,56 @@
+### CPU to GPU:
+We want to move heavy calculations from CPU to GPU using `pytorch`.
+
+
+To do this we must:
+  - [ ] Ensure that data is stored on GPU:
+    I already added a property `SymmetricTensor.device` which should automatically give us the right pytorch device (CPU or GPU)
+    - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
+    - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
+    - [ ] Rewrite `__getitem__` for pytorch **(?)**
+    - [ ] Rewrite `indep_iter` for pytorch
+  - [ ] Ensure data manipulations are done on GPU:
+     - [ ] Rewrite `__array_ufunc_` for torch functions
+     - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
+          AR doesn't think `__array_function__` needs to be rewritten, but the four associated one-line functions decorated with `SymmetricTensor.implements` we might as well adapt for Pytorch. `asarray` and `tensordot` should be trivial, since PyTorch supports them. The other two functions we can explicitely disallow (by commenting them out basically), and if we really need them later we can add them at that time.
+     - [ ] Rewrite `tensordot` for pytorch
+     - [ ] Rewrite `outer_product` for pytorch
+     - [ ] Rewrite `contract_all_indices_with_matrix` for pytorch in Schatz paper fig 3 way
+     - [ ] Rewrite `contract_tensor_list` for pytorch
+     - [ ] Rewrite `contract_all_indices_with_vector` for pytorch
+
+
+We could do this while preserving the functions which use numpy or do everything new in torch.
+So either:
+```
+def some_func(self, ...):
+    if self.use_numpy:
+       # some numpy code
+    else:
+       # some pytorch code
+```
+
+or directly do
+```
+def some_func(self, ...):
+    # some pytorch code
+```
+
+What do you think?
+
+AR's suggestion:
+- One abstract class `SymmetricTensor`
+- Multiple subclasses for each implementation; at present, `NumpySymmetricTensor` and `TorchSymmetricTensor`.
+- Each subclass in its own module
+- All modules under the subpackage `symmetric_tensor` (which would replace this file)
+- (Optional) Have an `__init__` file in the subpackage with something like the following code:
+  ```python
+  try:
+      import torch
+  except ImportError:
+      from .numpy_symmetric_tensor import NumpySymmetricTensor as SymmetricTensor
+  else:
+      from .torch_symmetric_tensor import TorchSymmetricTensor as SymmetricTensor
+      del torch
+   ```
+   This would ensure that already existing code should continue to work, and will switch to the Torch implementation if possible.
