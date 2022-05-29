@@ -192,3 +192,6 @@ foo = Foo()
 #     1.51 µs ± 7.19 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     102 ns ± 0.21 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
 #     135 ns ± 0.264 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
+
+from mackelab_toolbox.utils import GitSHA    # Keep this cell below all others
+GitSHA(show_hostname=True)

@@ -19,8 +19,8 @@ only_build_toc_files        : false
 #######################################################################################
 # Execution settings
 execute:
-  execute_notebooks         : "off"  # Use either "off" or "cache"
-  exclude_patterns          : ["**/*.back.*"]    # A list of patterns to *skip* in execution (e.g. a notebook that takes a really long time)
+  execute_notebooks         : "cache"  # Use either "off" or "cache"
+  exclude_patterns          : ["**/*.back.*", "**/utils.py"]    # A list of patterns to *skip* in execution (e.g. a notebook that takes a really long time)
   allow_errors              : true
   timeout                   : -1   # In seconds; -1 => no timeout
 
@@ -33,7 +33,7 @@ parse:
     - deflist
     - dollarmath
     # - html_admonition
-    - html_image
+    - html_image                    # Used for placing mermaid diagrams in figures, in a way which also works in Notebook
     # - linkify
     # - replacements
     # - smartquotes
@@ -47,7 +47,7 @@ html:
   use_repository_button: false
   use_issues_button: false
   comments:
-    hypothesis: true
+    hypothesis: false
 
 #######################################################################################
 # LaTeX-specific settings

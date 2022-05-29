@@ -941,3 +941,8 @@ def compare_memory(
              hv.opts.Overlay(legend_position='right'))
 
     return fig
+
+
+# %% tags=["remove-input"]
+from mackelab_toolbox.utils import GitSHA    # Keep this cell below all others
+GitSHA(show_hostname=True)

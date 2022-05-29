@@ -30,3 +30,4 @@ parts:
   - caption: Testing
     chapters:
     - file: tests/test_dense_numpy
+    - file: tests/test_dense_torch

@@ -29,7 +29,7 @@ else:
 # %% tags=["skip-execution", "remove-cell", "active-ipynb"]
 # exenv = "notebook"
 
-# %%
+# %% tags=["remove-input"]
 from warnings import warn
 import logging
 from ast import literal_eval
@@ -68,8 +68,8 @@ from statGLOW.smttask_ml.scityping import Serializable, Array, DType, Number
 # %%
 __all__ = ["SymmetricTensor"]
 
-# %%
-logger = logging.getLogger(__file__)
+# %% tags=["remove-input"]
+logger = logging.getLogger(__name__)
 
 
 # %% [markdown]
@@ -89,15 +89,15 @@ logger = logging.getLogger(__file__)
 #
 # | Layout →<br>Backend ↓ | Dense                       | σ-classes | Blocked arrays |
 # |-----------------------|-----------------------------|---------------------|---|
-# | Numpy                 | [`DenseSymmetricTensor`](sources/dense_symtensor.py)      | [`PermClsSymmetricTensor`](sources/permcls_symtensor.py) | ✘ |
-# | [PyTorch](sources/torch_symtensor) <br>(supports GPU) |  `DenseTorchSymmetricTensor` | `TorchSymmetricTensor` | ✘ |
+# | Numpy                 | [`DenseSymmetricTensor`](./dense_symtensor.py)      | [`PermClsSymmetricTensor`](./permcls_symtensor.py) | ✘ |
+# | [PyTorch](./torch_symtensor) <br>(supports GPU) |  `DenseTorchSymmetricTensor` | `TorchSymmetricTensor` | ✘ |
 # | tlash[^tlash]                      | ✘                                   | ✘                                                   | (planned)      |
 #
-# Default implementations for a particular layout are usually written for the NumPy backends. Additional backends are supported via mixins; so for example, the definition of `TorchDenseSymmetricTensor` is just two lines:
+# Default implementations for a particular layout are usually written for the NumPy backends. Additional backends are supported via multiple inheritance; so for example, the definition of `TorchDenseSymmetricTensor` is to a good approximation just two lines:
 #
 # ```python
-# class TorchDenseSymmetricTensor(TorchSymmetricTensorMixin, DenseSymmetricTensor):
-#     pass
+# class TorchDenseSymmetricTensor(DenseSymmetricTensor, TorchSymmetricTensor):
+#    _data                : Union[TorchTensor]
 # ```
 #
 # :::{caution} We occasionally use “format” as a synonym for “layout”, when we want to differentiate between the “layout” or “data alignment” of a tensor with specific rank and dimension, and a generic layout “format” with undetermined rank and dimension.
@@ -120,7 +120,7 @@ logger = logging.getLogger(__file__)
 # %% [markdown]
 # ## Notation summary
 #
-# (Reproduced from the [*Getting started* guide](../docs/Getting_started.md). See that page for more details.)
+# (Reproduced from the [*Getting started* guide](../Getting_started.md). See that page for more details.)
 #
 # | Symbol        | Desc              | Examples                             |
 # |---------------|-------------------|--------------------------------------|
@@ -161,9 +161,14 @@ logger = logging.getLogger(__file__)
 # %% [markdown]
 # ## Package dependencies
 #
-# `A --> B` means that `A` depends on `B`
+# :::{figure-md}  package-deps-symtensor
 #
-# [![](https://mermaid.ink/img/pako:eNpdj0sOgzAMRK-CvIYLsOiiak_Q7khVucRApHxQ4qhCiLs3IFLRbuzJ-MkTz9A6SVBDp927HdBzcb4LWxQvDLR2STZQs9VnmAwn4fxjnYzkTatDs_e_aXqh7lcVWekgbF5aVNUpexnbvJx4sLbY7y9-qD314EEJJpmoZDpnXhkBPJAhAXWSkjqMmgUIuyQ0jhKZrlKx81B3qAOVgJHdbbIt1OwjZeiisPdodmr5AL6nank)](https://mermaid-js.github.io/mermaid-live-editor/edit#pako:eNpdj0sOgzAMRK-CvIYLsOiiak_Q7khVucRApHxQ4qhCiLs3IFLRbuzJ-MkTz9A6SVBDp927HdBzcb4LWxQvDLR2STZQs9VnmAwn4fxjnYzkTatDs_e_aXqh7lcVWekgbF5aVNUpexnbvJx4sLbY7y9-qD314EEJJpmoZDpnXhkBPJAhAXWSkjqMmgUIuyQ0jhKZrlKx81B3qAOVgJHdbbIt1OwjZeiisPdodmr5AL6nank)
+# ![Dependencies between symalg, dense_symtensor, permcls_symtensor, base, utils.](https://mermaid.ink/img/pako:eNpdj0sOgzAMRK-CvIYLsOiiak_Q7khVucRApHxQ4qhCiLs3IFLRbuzJ-MkTz9A6SVBDp927HdBzcb4LWxQvDLR2STZQs9VnmAwn4fxjnYzkTatDs_e_aXqh7lcVWekgbF5aVNUpexnbvJx4sLbY7y9-qD314EEJJpmoZDpnXhkBPJAhAXWSkjqMmgUIuyQ0jhKZrlKx81B3qAOVgJHdbbIt1OwjZeiisPdodmr5AL6nank)
+#
+# `A --> B` means that `A` depends on `B`.
+# [[Edit]](https://mermaid-js.github.io/mermaid-live-editor/edit#pako:eNpdj0sOgzAMRK-CvIYLsOiiak_Q7khVucRApHxQ4qhCiLs3IFLRbuzJ-MkTz9A6SVBDp927HdBzcb4LWxQvDLR2STZQs9VnmAwn4fxjnYzkTatDs_e_aXqh7lcVWekgbF5aVNUpexnbvJx4sLbY7y9-qD314EEJJpmoZDpnXhkBPJAhAXWSkjqMmgUIuyQ0jhKZrlKx81B3qAOVgJHdbbIt1OwjZeiisPdodmr5AL6nank)
+#
+# :::
 
 # %% [markdown]
 # -------------------------------------------------
@@ -219,24 +224,40 @@ logger = logging.getLogger(__file__)
 #   Elementwise operations between tensors of the same size and rank can be trivially implemented when the need arises; other operations (like `.dot`) should be possible with some more work.
 
 # %% [markdown]
-# > **For implementers** These are the abstract methods and atttributes subclasses must implement:
-# > - *data_format*  (class attribute)
-# > - *_validate_data*
-# > - *_init_data*
-# > - *\_\_getitem\_\_*
-# > - *\_\_setitem\_\_*
-# > - *size*
-# > - *todense*
-# > - *keys*
-# > - *values*
-# > - *flat*
-# > - *flat_index*
-# > - *indep_iter*
-# > - *indep_iter_repindex*
-# > - *permcls_indep_iter*
-# > - *permcls_indep_iter_repindex*
+# :::{hint}
+# A good rule of thumb is the following:
+# - *Concrete subclasses* of `SymmetricTensor` implementing a new *data format* should (re)define *abstract* methods of `SymmetricTensor`;
+# - *Abstract subclasses* of `SymmetricTensor` implementing a new *array backend* should redefine some of the *concrete* methods of `SymmetricTensor`.
+#
+# :::
 
-# %%
+# %% [markdown]
+# :::{admonition} List of abstract methods
+#
+# For convenience, here is the list `SymmetricTensor`'s abstract methods and attributes:
+# - *data_format*  (class attribute)
+# - *_validate_data*
+# - *_init_data*
+# - *\_\_getitem\_\_*
+# - *\_\_setitem\_\_*
+# - *size*
+# - *todense*
+# - *keys*
+# - *values*
+# - *flat*
+# - *flat_index*
+# - *indep_iter*
+# - *indep_iter_repindex*
+# - *permcls_indep_iter*
+# - *permcls_indep_iter_repindex*
+#
+# :::
+
+# %% [markdown]
+# :::{margin} `implements_ufunc` interface
+# :::
+
+# %% tags=["hide-input"]
 @dataclass
 class HandledUfuncsInterface:
     """
@@ -302,6 +323,10 @@ class HandledUfuncsInterface:
                     self.cls._HANDLED_UFUNCS[method][ufunc] = None
         return ufunc_registry_interface
 
+# %% [markdown]
+# :::{margin} abstract class `SymmetricTensor`
+# :::
+
 # %%
 class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
     # NDArrayOperatorsMixin adds methods like __add__, __ge__, by using __array_ufunc_. See https://numpy.org/devdocs/reference/generated/numpy.lib.mixins.NDArrayOperatorsMixin.html
@@ -324,10 +349,11 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
     #   - We want to explicitely *disallow* that ufunc.
     #     This can be done by defining it as `None`.
 
-    rank                 : int
-    dim                  : int
-    _dtype               : DType
-    data_format          : ClassVar[str]="None"
+    rank        : int
+    dim         : int
+    _dtype      : DType
+    data_format : ClassVar[str]="None"
+    array_type  : ClassVar[type]=np.ndarray  # Type for undelying arrays. Typically changed by abstract subclasses to change the backend. At present not really used, but since we anticipate it will be useful, we preemptively standardize its name
 
     # DEVNOTE: Subclasses must define the following class annotations:
     # _data                : Union[Array, Number]
@@ -460,19 +486,37 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                                   for counts in utils._perm_classes(self.rank))
 
         # Set dtype
-        if dtype is None:
-            dtype = np.dtype('float64')
-        else:
-            dtype = np.dtype(dtype)
-        self._dtype = dtype
+        self._set_dtype(dtype)
 
         # Set data
         if data is not None:
             self._init_data(data, symmetrize)  # Uses the set values self.rank, self.dim, self._dtype
 
-    @classmethod
+    # _validate_dataarray mostly depends on the backend – overridden in abstract subclasse
+    def _validate_dataarray(self, array: "array-like") -> Array:
+        """
+        Given the data for a single underlying data object, validate it.
+        Typically this means casting to `ndarray`, and checking that is it
+        either of numeric or bool type.
+        """
+        # Cast to array if necessary
+        if not isinstance(array, np.ndarray):
+            # Reproduce the same range of standardizations NumPy has: Python bools & ints, NumPy types, tuples, lists, etc.
+            array = np.asanyarray(array)
+
+        # Validate dtype
+        if array.dtype == object:
+            raise TypeError(f"Initialization of {type(self).__qualname__} doesn’t "
+                            f"support arguments of type {type(array)}.")            
+        elif not any((np.issubdtype(array.dtype, np.number),
+                     np.issubdtype(array.dtype, bool))):
+            raise TypeError(f"Data type is neither numeric nor bool: {arra.dtype}.")
+        
+        return array
+
+    # _validate_data mostly depends on the data format – overridden in concrete subclasses
     @abstractmethod
-    def _validate_data(cls, data: Union[Number, Array]) -> Tuple[Any, DType, Tuple[int,...]]:
+    def _validate_data(cls, data: Union[dict, "array-like"]) -> Tuple[Any, DType, Tuple[int,...]]:
         # DEVNOTE: In subclasses, replace 'Any' by the type(s) actually returned
         """
         Do five things:
@@ -495,7 +539,23 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         #    They can also assume that `data` is not None.
         #    If both rank/dim and data are provided, subclasses SHOULD check
         #    that they are compatible, and raise ValueError otherwise.
+        # DEVNOTE: This method should call `_validate_dataarray` one or more times
         raise NotImplementedError
+        
+    def _set_dtype(self, dtype: Optional[DType]):
+        """
+        Set the `self._dtype` attribute based on `dtype`, which may have been
+        inferred from data or passed as argument.
+        If no `dtype` is given, set it to the default 'float64'.
+        
+        This method is overridden e.g. by TorchSymmetricTensor to store a Torch
+        dtype instead of a NumPy one.
+        """
+        if dtype is None:
+            dtype = np.dtype('float64')
+        else:
+            dtype = np.dtype(dtype)
+        self._dtype = dtype
 
     @abstractmethod
     def _init_data(self, data, symmetrize: bool):
@@ -538,16 +598,20 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         for nm, obj in cls.__dict__.items():
             if (not inspect.isfunction(obj)  # NB: On the base class, these are functions, not methods
                 and not isinstance(obj, property)
-                and not hasattr(obj, "__doc__")):
+                and not hasattr(obj, "__doc__")
+                and not getattr(obj, nm, None) is obj):
                 continue
             if obj.__doc__ is None:
                 # Replace with the doc of the first parent which provides one.
-                obj.__doc__ = get_base_doc(nm, cls)
+                try:
+                    obj.__doc__ = get_base_doc(nm, cls)
+                except AttributeError:  # If a class has no docstring, it is read-only and can't be overwritten
+                    pass
             elif "{{base_docstring}}" in obj.__doc__:
                 obj.__doc__ = obj.__doc__.replace(
                     "{{base_docstring}}", get_base_doc(nm, cls))
         # Perform additional correctness checks
-        if "_data" not in cls.__annotations__:
+        if "_data" not in cls.__annotations__ and not inspect.isabstract(cls):
             raise RuntimeError(f"Class {cls} does not define '_data' in its class annotations.")
         # Add class-level attributes which require an already instantiated class
         cls.implements_ufunc = HandledUfuncsInterface(cls)
@@ -881,36 +945,12 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
 
     ## Array creation, copy, etc. ##
 
-    def __array__(self):
+    def __array__(self, dtype=None):  # C.f. ndarray.__array__'s docstring
         warn(f"Converting a SymmetricTensor to a dense NumPy array of shape {self.shape}.")
-        return self.todense()
-
-    def asarray(self, dtype=None, order=None):
-        new_data = {k: np.asarray(v, dtype, order) if isinstance(v, np.ndarray)
-                       else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
-                       else v.astype(dtype)
-                    for k, v in self.items()}
-        if all(orig_arr is new_arr for orig_arr, new_arr
-               in zip(self.values(), new_data.values())):
-            # None of the sub arrays were copied
-            return self
-        else:
-            return type(self)(self.rank, self.dim, data=new_data)
-
-    def asanyarray(self, dtype=None, order=None):
-        new_data = {k: v.asanyarray(dtype, order) if isinstance(v, np.ndarray)
-                       else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
-                       else v.astype(dtype)
-                    for k, v in self.items()}
-        if all(orig_arr is new_arr for orig_arr, new_arr
-               in zip(self.values(), new_data.values())):
-            # None of the sub arrays were copied
-            return self
-        else:
-            return type(self)(self.rank, self.dim, data=new_data)
+        return np.array(self.todense(), dtype=None)  # Returns a new reference if dtype is not modified
 
     def astype(self, dtype, order, casting, subok=True, copy=True):
-        new_data = {k: v.astype(dtype, order, casting, subok, copy) if isinstance(v, np.ndarray)
+        new_data = {k: v.astype(dtype, order, casting, subok, copy) if not np.isscalar(v)
                        else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
                        else v.astype(dtype)
                     for k, v in self.items()}
@@ -1065,8 +1105,13 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
     @staticmethod
     def default_binary_ufunc(ufunc, method, *inputs, **kwargs):
         """
-        A generic implementation for supporting unary ufuncs on
-        `SymmetricTensor`s.
+        A generic implementation for supporting binary ufuncs on
+        `SymmetricTensor`s. Only ufuncs with the signature ``(),()->()`` are
+        supported (which is the majority).
+        
+        .. Note:: One the ``__call__`` method is supported by this default.
+           Additional default methods for other methods like ``accumulate``
+           could be implemented, if needed.
         """
         assert ufunc.signature is None, "Default binary operation only supports ufuncs with '()->()' signature."
         assert method == "__call__", "Default binary operation only supports ufuncs’ '__call__' method."
@@ -1222,7 +1267,7 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         assert ufunc.nout == 1  # Redundant with above; repeated to document why just returning 'out' is valid
         return out
 
-# %%
+
 # Class-level reflective attributes
 # (For subclasses, these are automatically attached by __init_subclass__)
 SymmetricTensor.implements_ufunc = HandledUfuncsInterface(SymmetricTensor)
@@ -1310,6 +1355,8 @@ def _symtensor_total_size_handler(symtensor):
 # #### `ndim()`, `shape()`
 
 # %%
+# Note: These are not strictly necessary, since of no function is defined, the default
+# implementations of `np.ndim` and `np.shape` check for `ndim` and `shape` attributes.
 @SymmetricTensor.implements(np.ndim)
 def ndim(a: SymmetricTensor) -> int:
     return a.ndim
@@ -1325,11 +1372,29 @@ def shape(a: SymmetricTensor) -> Tuple[int,...]:
 # %%
 @SymmetricTensor.implements(np.asarray)
 def asarray(a, dtype=None, order=None):
-    return a.asarray(dtype, order=order)
+    new_data = {k: np.asarray(v, dtype, order) if not np.isscalar(v)
+                   else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
+                   else v.astype(dtype)
+                for k, v in a.items()}
+    if all(orig_arr is new_arr for orig_arr, new_arr
+           in zip(a.values(), new_data.values())):
+        # None of the sub arrays were copied
+        return a
+    else:
+        return type(a)(a.rank, a.dim, data=new_data)
 
 @SymmetricTensor.implements(np.asanyarray)
 def asanyarray(a, dtype=None, order=None):
-    return a.asanyarray(dtype, order=order)
+    new_data = {k: v.asanyarray(dtype, order) if not np.isscalar(v)
+                   else v if v.dtype == dtype  # Scalars are always copied with astype – even when copy=False
+                   else v.astype(dtype)
+                for k, v in a.items()}
+    if all(orig_arr is new_arr for orig_arr, new_arr
+           in zip(a.values(), new_data.values())):
+        # None of the sub arrays were copied
+        return a
+    else:
+        return type(a)(a.rank, a.dim, data=new_data)
 
 # %% [markdown]
 # #### `result_type()`
@@ -1348,7 +1413,6 @@ def result_type(*arrays_and_dtypes) -> DType:
 # #### `isclose()`
 
 # %%
-
 @SymmetricTensor.implements(np.isclose)
 def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, SymmetricTensor]:
     """
@@ -1356,8 +1420,17 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
     `SymmetricTensor` of the same shape with boolean entries.
     Otherwise returns an `ndarray`.
     """
-    comp = partial(np.isclose, rtol=rtol, atol=atol, equal_nan=equal_nan)
+    return _elementwise_compare(
+        partial(np.isclose, rtol=rtol, atol=atol, equal_nan=equal_nan),
+        a, b)
 
+# %% [markdown]
+# :::{margin} `_elementwise_compare`
+# :::
+
+# %%
+def _elementwise_compare(comp, a, b):
+    
     if not isinstance(a, SymmetricTensor):
         if not isinstance(b, SymmetricTensor):
             # Case: neither a nor b is SymmetricTensor – shouldn't happen
@@ -1369,18 +1442,17 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
 
     # From here can assume 'a' is a SymmetricTensor
 
+    if np.ndim(b) == 0:
+        data = {k: comp(v, b) for k,v in a.items()}
+        return type(a)(rank=a.rank, dim=a.dim, data=data)
 
-    if isinstance(b, np.ndarray):
-        # Case: one SymmetricTensor vs NdArray
+    elif not isinstance(b, SymmetricTensor):
+        # Case: one SymmetricTensor vs NdArray | TorchTensor | etc.
         # OPTIMIZATION: If b.ndim < a.rank, we could save quite a number of comparisons by returning a partially symmetric tensor
         logger.warning("Comparisons between symmetric and dense tensors are "
                        "currently implemented by converting the symmetric "
                        "tensor to a dense array, which may be costly.")
         return comp(a.todense(), b)
-
-    elif isinstance(b, Number_):
-        data = {k: comp(v, b) for k,v in a.items()}
-        return type(a)(rank=a.rank, dim=a.dim, data=data)
 
     elif isinstance(b, SymmetricTensor):
         if a.data_alignment == b.data_alignment:
@@ -1441,7 +1513,7 @@ def array_equal(a, b) -> bool:
     Return True if `a` and `b` are both `SymmetricTensors` and all their
     elements are equal. C.f. `numpy.array_equal`.
     """
-    return _array_comp(np.array_equal, a , b)
+    return _array_compare(np.array_equal, a , b)
 
 @SymmetricTensor.implements(np.allclose)
 def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
@@ -1449,12 +1521,16 @@ def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
     Return True if `a` and `b` are both `SymmetricTensors` and all their
     elements are close. C.f. `numpy.allclose`.
     """
-    return _array_comp(partial(np.allclose, rtol=rtol, atol=atol, equal_nan=equal_nan),
+    return _array_compare(partial(np.allclose, rtol=rtol, atol=atol, equal_nan=equal_nan),
                        a, b)
 
 
+# %% [markdown]
+# :::{margin} `_array_compare`
+# :::
+
 # %%
-def _array_comp(comp, a, b) -> bool:
+def _array_compare(comp, a, b) -> bool:
     "`comp` should be like np.array_equal or allclose: returns a single bool."
     if not isinstance(a, SymmetricTensor):
         if not isinstance(b, SymmetricTensor):
@@ -1508,6 +1584,10 @@ def _array_comp(comp, a, b) -> bool:
 #
 #
 # [^1]: Exception: if the function includes arguments with default values, the corresponding arguments of the dispatcher must use `None` as their default value. See also the docstring of numpy.core.overrides.array_function_dispatch; some examples can be found in numpy.core.numeric.py
+
+# %% [markdown]
+# ::: {margin} `array_function_dispatch`
+# :::
 
 # %%
 def array_function_dispatch(dispatcher, module=None, verify=True,
@@ -1582,7 +1662,7 @@ def result_array(*arrays_and_types) -> Type[np.ndarray]:
 
 # %%
 @SymmetricTensor.implements(result_array)
-def result_symtensor_class(*arrays_and_types) -> Type[SymmetricTensor]:
+def result_symtensor(*arrays_and_types) -> Type[SymmetricTensor]:
     """
     Analogue to `result_type`: apply type promotion on array classes themselves.
     Arguments may be types or instances.
@@ -1591,8 +1671,8 @@ def result_symtensor_class(*arrays_and_types) -> Type[SymmetricTensor]:
     most specific common superclass.
 
     result_array(ndarray, ndarray) -> ndarray
-    result_array(ndarray, *SymmetricTensor) -> *SymmetricTensor
-    result_array(*SymmetricTensor, ndarray) -> *SymmetricTensor
+    result_array(ndarray, SymmetricTensor) -> SymmetricTensor
+    result_array(SymmetricTensor, ndarray) -> SymmetricTensor
     result_array(SymmetricTensor, SymmetricTensor) -> SymmetricTensor
     """
     types = (arr if isinstance(arr, type) else type(arr)

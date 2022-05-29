@@ -99,47 +99,36 @@ def get_index_representative(index: Tuple[int]) -> Tuple[int]:
 # %% tags=["remove-output"]
 class DenseSymmetricTensor(SymmetricTensor):
     """
+    A `SymmetricTensor` storing its data as a single dense NumPy array.
+    Provides no memory improvements over NumPy arrays, but exposes an API
+    consistent with other `SymmetricTensors`.
+    
     On creation, defaults to a zero tensor.
     """
-    _data                : Union[Array, Number]
+    _data                : Union[Array]
         
-    @classmethod
-    def _validate_data(cls, data: Union[Number, Array]) -> Tuple[Array, DType]:
+    # _validate_data mostly depends on the data format – overridden in subclasses
+    def _validate_data(self, data: Union[dict, "array-like"]) -> Tuple[Array, DType]:
         # DEVNOTE: Implementations in subclasses can assume that self.rank and
         #    self.dim are set to the value of arguments (but NOT self._dtype).
         #    They can also assume that `data` is not None.
         #    If both rank/dim and data are provided, subclasses SHOULD check
         #    that they are compatible, and raise ValueError otherwise.
-
+        
         if isinstance(data, dict):
             # Special case: to have a standard mapping API, we emulate data stored as {(): array}
             if data.keys() == {()}:
                 data = data[()]
             else:
-                import pdb; pdb.set_trace()
                 raise TypeError("Data should be passed as either a normal NumPy array, "
                                 "or the dictionary {(): data} with a single NumPy array.\n"
                                 f"Received: {repr(data)}")
 
-        if isinstance(data, np.ndarray):
-            arraydata = data
-            datadtype = data.dtype
-        
-        else:
-            # Reproduce the same range of standardizations NumPy has: Python bools & ints, NumPy types, tuples, lists, etc.
-            arraydata = np.asanyarray(data)
-            datadtype = arraydata.dtype
-            
+        # Now that we've ensured that `data` is not a dict, make it an array, then inspect it to get dtype
+        arraydata = self._validate_dataarray(data)
+        datadtype = arraydata.dtype
         datashape = arraydata.shape
 
-        # Validate dtype
-        if arraydata.dtype == object:
-            raise TypeError(f"Initialization of {cls.__qualname__} doesn’t support "
-                            f"arguments of type {type(data)}.")            
-        elif not any((np.issubdtype(datadtype, np.number),
-                     np.issubdtype(datadtype, bool))):
-            raise TypeError(f"Data type is neither numeric nor bool: {datadtype}.")
-               
         # Return
         return arraydata, datadtype, datashape
 
@@ -278,6 +267,9 @@ class DenseSymmetricTensor(SymmetricTensor):
         # indep_iter_repindex: 28 ns / loop (function overhead)
         # comparison (tuple): 90–105 ns / loop
         # comparison (str): 62 ns / loop
+
+# %% [markdown]
+# ### Array functions
 
 # %%
 # Implementations of symmetric algebra functions

@@ -128,3 +128,7 @@ for rank in [3]:
         # vect x vect x vect ... x vect
         display(timeit("functools.reduce(np.multiply.outer, (vect,)*rank)",
                        number=10))
+
+# %% tags=["remove-input"]
+from mackelab_toolbox.utils import GitSHA    # Keep this cell below all others
+GitSHA(show_hostname=True)

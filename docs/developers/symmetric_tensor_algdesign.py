@@ -8,6 +8,10 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
+#   kernelspec:
+#     display_name: Python (statGLOW)
+#     language: python
+#     name: statglow
 # ---
 
 # %% [markdown]
@@ -745,4 +749,4 @@ df
 
 # %% tags=["remove-input"]
 from mackelab_toolbox.utils import GitSHA    # Keep this cell below all others
-GitSHA()                                     # (Eventually this will be replaced with `statGLOW.footer`)
+GitSHA(show_hostname=True)
