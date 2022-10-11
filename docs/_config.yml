@@ -21,7 +21,7 @@ only_build_toc_files        : false
 execute:
   execute_notebooks         : "cache"  # Use either "off" or "cache"
   exclude_patterns          : ["**/*.back.*", "**/utils.py"]    # A list of patterns to *skip* in execution (e.g. a notebook that takes a really long time)
-  allow_errors              : true
+  allow_errors              : false
   timeout                   : -1   # In seconds; -1 => no timeout
 
 #######################################################################################

@@ -76,13 +76,18 @@ See the [implementation page](./sources/base.py#Implementation-of-the-__array_fu
 
 **Multi-index**  
 ~ A particular element of a tensor $A$ of rank $r$ is denoted $A_{i_1,\dotsc,i_r}$. For notational brevity, we use $I$ to denote the multi-index, i.e.
+  
   $$I := i_1,\dotsc,i_r\,.$$
+  
   When the rank of the multi-index is important, we may use $I_r$.
 
 **Index class**  
 ~ The basic property of a symmetric tensor $A$ of rank $r$ is that for any permutation $σ \in S_r$,
+  
   $$A_{I} = A_{σ(I)} \,.$$
+  
   Thus the existence of a permutation such that $I' = σ(I)$ defines an equivalence relation on the set of multi-indices. An *index class* is the set of all indices satisfying this relation, and is denoted by with a representative element of that classes:
+  
   $$\hat{I} := \{I' \in \mathbb{R}^r | \exists σ \in S_r, I' = σ(I)\} \,.$$
 
 ~ The representative depends on the data format. For dense tensors, we sort indices lexicographically. For σ-class tensors, we groupe equal indices, sorting groups first in decreasing multiplicity, and then in increasing index value. In both formats, the first of these sorted indices is the representative index.
