@@ -178,7 +178,7 @@ class TorchSymmetricTensor(SymmetricTensor):
     def astype(self, dtype, order, casting, subok=True, copy=True):
         "Torch tensors don't implement this."
         raise NotImplementedError
-                       
+
 # %% [markdown]
 # ### Implementation of the `__array_function__` dispatch protocol
 
