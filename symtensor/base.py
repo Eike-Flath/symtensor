@@ -47,14 +47,17 @@ from statGLOW.utils import does_not_warn
 
 from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
                     Dict, List, Tuple, Set)
-from scityping import Serializable, Array, DType, Number
+from scityping import Number
+from scityping.numpy import Array, DType
+from scityping.torch import TorchTensor
 
 # %% tags=["active-ipynb"]
 # # Notebook only imports
-# from symtensor import utils
+# #from symtensor import utils #CM:Does not work for me.... 
+# import utils as utils
 
 # %% tags=["active-py"]
-# Script only imports
+Script only imports
 from . import utils
 
 # %%

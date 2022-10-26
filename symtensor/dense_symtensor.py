@@ -50,7 +50,8 @@ import numpy as np
 
 # %%
 from typing import Generator
-from scityping import Number, Array, DType
+from scityping import Number
+from scityping.numpy import Array, DType
 
 # %% tags=["active-ipynb"]
 # # Notebook only imports

@@ -23,7 +23,7 @@ from itertools import chain
 import numpy as np
 
 from typing import Optional, Union, Any, List, Tuple, Sequence, Iterable, Generator
-from scityping import Array
+from scityping.numpy import Array
 
 # %% tags=["remove-cell", "active-py"]
 if __name__ != "__main__":

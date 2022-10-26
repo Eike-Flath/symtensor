@@ -31,10 +31,11 @@ import numpy as np
 from mackelab_toolbox.utils import TimeThis
 import statGLOW
 from statGLOW.utils import does_not_warn
-import statGLOW.stats.symtensor.symtensor.utils as utils
+import symtensor.symtensor.utils as utils
 
 from typing import Union, ClassVar, Any, Iterator, Generator, Dict, List, Tuple, Set
-from scityping import Serializable, Array, DType
+from scityping import Serializable
+from scityping.numpy import Array, DType
 
 # %% tags=["hide-input", "active-ipynb"]
 # # Notebook only imports

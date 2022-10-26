@@ -46,7 +46,12 @@ from pydantic import BaseModel
 from collections_extended import bijection
 
 from typing import Optional, ClassVar, Union
-from scityping import Number, Array, DType, TorchTensor
+from scityping import Number
+from scityping.numpy import Array, DType
+from scityping.torch import TorchTensor
+
+# %%
+from torch_symtensor import TorchSymmetricTensor
 
 # %% tags=["active-py", "remove-cell"]
 from .base import SymmetricTensor, array_function_dispatch
@@ -84,6 +89,10 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
 
         """
         super().__init__(rank, dim, data, dtype, symmetrize)
+        # Sets rank, dim, device, _σclass_sizes, _σclass_multiplicities
+        # Calls _validate_data
+        # Sets _dtype
+        # Calls _init_data
 
     @classmethod
     def _validate_data(cls,
@@ -123,9 +132,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
                         raise TypeError("components must be of type tuple[array,SymmetricTensor]")
                     self.components = data[key]
                 else: 
-                    raise ValueError(f"`data` contains the key '{key}'.
+                    raise ValueError(f"`data` contains the key '{key}'."
                                      "Permitted data keys are `mulitplicities`,"
-                                     " `weights` and `components`."
+                                     " `weights` and `components`.")
                 if isinstance(key, str):
                     newkey = literal_eval(key)  # NB: That this is Tuple[int] is verified below
                     if newkey in data:
@@ -154,3 +163,55 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
                             "multiplicities :Tuple}")
 
         return data, datadtype, data_shape
+    
+    def _init_data(self, data:  Dict[Tuple[int,...]]):
+        self._data = data
+    
+    ## Dunder methods ##
+
+    # def __str__(self)
+
+    def __repr__(self):
+        s = f"{type(self).__qualname__}(rank: {self.rank}, dim: {self.dim})"
+        lines = [f"  {key}: {value}"
+                 for key, value in self._data.items()]
+        return "\n".join((s, *lines)) + "\n"  # Lists of SymmetricTensors look better if each tensor starts on its own line
+    
+    def __getitem__(self, key):
+        """
+        {{base_docstring}}
+
+        .. Note:: slices are not yet supported.
+        """
+        if isinstance(key, str):
+            raise NotImplementedError
+
+        elif isinstance(key, tuple):
+            if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
+                raise NotImplementedError
+            else:
+                σcls = utils._get_permclass(key)
+                vals = self._data[σcls]
+                if np.ndim(vals) == 0:
+                    return vals
+                else:
+                    σcls, pos = _convert_dense_index(self.rank, self.dim, key)
+                    return vals[pos]
+        elif self.rank==1 and isinstance(key,int): #special rules for vectors
+            vals = self._data[(1,)]
+            return vals if np.isscalar(vals) else vals[key]
+        elif self.rank >1 and isinstance(key, int):
+            if self.dim ==1:
+                σcls, pos = self._convert_dense_index(self.rank, self.dim, key)
+                vals = self._data[σcls]
+                return vals if np.isscalar(vals) else vals[pos]
+            elif self.dim >1:
+                B = PermClsSymmetricTensor(rank = self.rank-1, dim = self.dim)
+                for idx in B.permcls_indep_iter_repindex():
+                    B[idx] = self[idx+(key,)]
+
+                return B
+        else:
+            raise KeyError(f"{key}")
+
+

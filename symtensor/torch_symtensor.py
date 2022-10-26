@@ -24,7 +24,9 @@ from pydantic import BaseModel
 from collections_extended import bijection
 
 from typing import Optional, ClassVar, Union
-from scityping import Number, Array, DType, TorchTensor
+from scityping import Number
+from scityping.numpy import Array, DType
+from scityping.torch import TorchTensor
 
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
