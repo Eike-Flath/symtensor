@@ -23,7 +23,7 @@ from itertools import chain
 import numpy as np
 
 from typing import Optional, Union, Any, List, Tuple, Sequence, Iterable, Generator
-from statGLOW.smttask_ml.scityping import Array
+from scityping import Array
 
 # %% tags=["remove-cell", "active-py"]
 if __name__ != "__main__":
@@ -105,7 +105,7 @@ def common_superclass(*instances_or_types):
 #
 # For example, any code which ultimately calls NumPy's C API will require true NumPy arrays. This is partly why the example above uses `einsum_path` (which is a pure Python function) and not `einsum`, which internally calls the C function `c_einsum`.
 #
-# Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *statGLOW/stats/permcls_symtensor.py* for an example.
+# Note: Rather than requiring the user to wrap calls with `make_array_like`, a better approach is to include those calls in the type-specific dispatch code, so that `np.einsum_path` always works as expected. See the implementation of `einsum_path` in *permcls_symtensor.py* for an example.
 
 # %%
 from collections.abc import Iterable as Iterable_
@@ -182,7 +182,7 @@ def make_array_like(like, modules=()):
 # %%
 if exenv in {"notebook", "jbook"}:
     import pytest
-    from statGLOW.stats.symtensor import DenseSymmetricTensor
+    from symtensor import DenseSymmetricTensor
 
     A = DenseSymmetricTensor(rank=2, dim=3)
     # Context manager works as expected…

@@ -3,15 +3,11 @@
 # jupyter:
 #   jupytext:
 #     formats: py:percent
-#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version
+#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#   kernelspec:
-#     display_name: Python (statGLOW)
-#     language: python
-#     name: statglow
 # ---
 
 # %% [markdown]
@@ -43,7 +39,7 @@ import itertools
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 from numpy.random import RandomState  # The legacy RandomState is preferred for testing (see https://numpy.org/neps/nep-0019-rng-policy.html#supporting-unit-tests)
 from statGLOW.smttask_ml.rng import get_seedsequence
-from statGLOW.stats.symtensor import _get_perm_class
+from symtensor import _get_perm_class
 
 import time
 import timeit
@@ -55,7 +51,6 @@ from tqdm.auto import tqdm, trange
 from tqdm.contrib.logging import logging_redirect_tqdm
 import ipywidgets as widgets
 
-import statGLOW
 from collections import Counter
 
 # %% tags=["remove-cell"]
@@ -175,7 +170,7 @@ def index_perm_prod_sum_no_cython(W, idx_fixed,idx_permute):
 # np.import_array()
 # import itertools
 # import math
-# from statGLOW.stats.symtensor import _get_perm_class
+# from symtensor import _get_perm_class
 # def index_perm_prod_sum_old(np.ndarray W, tuple idx_fixed, tuple idx_permute):
 #     """
 #     For index_fixed = (j_1, ... j_r)
@@ -252,7 +247,7 @@ for i in range(10):
 # Trying to isolate even further which part of the computation is slow: Iterating over the tensors is not expensive. Retrieving the values is also not expensive, since we iterate over them in a sequential manner, as we do in our final contraction method. At, least, the time needed for the retrieval of values is far below  the time needed for the computation of the contraction. 
 
 # %%
-from statGLOW.stats.symtensor import SymmetricTensor
+from symtensor import SymmetricTensor
 def iterate_over_tensor_retrieve_value(x):
     a=0
     for idx_permute in x.index_class_iter(): 
@@ -378,7 +373,7 @@ def contract_all_indices_with_matrix_schatz_4(x, W):
 # Now we compare how far we got with the improvements. We use a rank $4$ tensor because we would like to go at least that high in rank. 
 
 # %%
-from statGLOW.stats.symtensor import SymmetricTensor
+from symtensor import SymmetricTensor
 for dim in [2,4,6,8,9]: 
     x = SymmetricTensor(rank =4, dim= dim)
     W = np.random.rand(dim,dim)
@@ -402,7 +397,7 @@ for dim in [2,4,6,8,9]:
 
 
 # %%
-from statGLOW.stats.symtensor import SymmetricTensor
+from symtensor import SymmetricTensor
 for dim in [10,20,30]: 
     x = SymmetricTensor(rank = 4, dim= dim)
     W = np.random.rand(dim,dim)

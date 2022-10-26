@@ -29,8 +29,7 @@ from tabulate import tabulate
 import numpy as np
 import pint; ureg = pint.UnitRegistry()
 
-import statGLOW.typing
-from statGLOW.stats.symtensor import DenseSymmetricTensor
+from symtensor import DenseSymmetricTensor
 
 ureg.define('μs = 1 * microsecond = μs')  # timeit uses 'μs' in its output strings
 # ureg.define("@alias microsecond = μs")  # This would be better, but doesn't work – https://github.com/hgrecco/pint/issues/1076

@@ -15,7 +15,6 @@
 
 # %% tags=["remove-input"]
 from __future__ import annotations
-import statGLOW.typing
 
 # %% tags=["remove-input"]
 from functools import reduce
@@ -25,16 +24,19 @@ from pydantic import BaseModel
 from collections_extended import bijection
 
 from typing import Optional, ClassVar, Union
-from statGLOW.smttask_ml.scityping import Number, Array, DType, TorchTensor
+from scityping import Number, Array, DType, TorchTensor
+
+# %% tags=["active-ipynb", "remove-input"]
+# # Module only imports
+# from symtensor import SymmetricTensor, _elementwise_comp, _array_comp
+# from symtensor import base
+# from symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
-
-# %% tags=["active-ipynb", "remove-input"]
-# from statGLOW.stats.symtensor.symtensor import SymmetricTensor, _elementwise_comp, _array_comp
-# from statGLOW.stats.symtensor.symtensor import utils
 
 # %% [markdown]
 # ## Considerations
@@ -178,7 +180,7 @@ class TorchSymmetricTensor(SymmetricTensor):
     def astype(self, dtype, order, casting, subok=True, copy=True):
         "Torch tensors don't implement this."
         raise NotImplementedError
-                       
+
 # %% [markdown]
 # ### Implementation of the `__array_function__` dispatch protocol
 

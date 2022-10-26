@@ -13,10 +13,14 @@
 # %% [markdown]
 # # Additional linear algebra functions for symmetric tensors
 #
-# Normally this would be imported from the top level:
+# Normally these functions would be accessed from the top level:
 # ```python
-# import statGLOW.stats.symtensor as st
-# st.contract_all_indices_with_matrix(A, B)
+# import symtensor
+# symtensor.contract_all_indices_with_matrix(A, B)
+# ```
+# If they are used frequently, the short form `st` is recommended:
+# ```python
+# import symtensor as st
 # ```
 
 # %%
@@ -29,17 +33,20 @@ from itertools import product
 import numpy as np
 
 # %%
-if __name__ == "__main__":
-    from .base import SymmetricTensor, result_array, array_function_dispatch
-    from statGLOW.stats.symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
-    from statGLOW.stats.symtensor import utils
-else:
-    from .base import SymmetricTensor, result_array, array_function_dispatch
-    from .dense_symtensor import DenseSymmetricTensor
-    from . import utils
-
 from typing import Union, Type
-from statGLOW.smttask_ml.scityping import Real
+from scityping import Real
+
+# %% tags=["active-ipynb"]
+# # Notebook only imports
+# from symtensor.base import SymmetricTensor, result_array, array_function_dispatch
+# from symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
+# from symtensor import utils
+
+# %% tags=["active-py"]
+# Script only imports
+from .base import SymmetricTensor, result_array, array_function_dispatch
+from .dense_symtensor import DenseSymmetricTensor
+from . import utils
 
 # %%
 __all__ = [
@@ -228,7 +235,7 @@ def symmetric_tensordot(a, b, axes=2):
 
 # %% [markdown]
 # ```python
-# from statGLOW.utils import does_not_warn
+# from symtensor.testing.utils import does_not_warn
 #
 # A = SymmetricTensor(rank=2, dim=3)
 # B = SymmetricTensor(rank=2, dim=3)

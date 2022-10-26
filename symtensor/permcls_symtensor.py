@@ -16,19 +16,6 @@
 # %%
 from __future__ import annotations
 
-# %% tags=["remove-cell"]
-exenv = "script"
-if __name__ != "__main__":
-    exenv = "module"
-elif False:
-    pass
-
-    # %% tags=["remove-cell"]
-    exenv = "jbook"
-
-    # %% tags=["skip-execution", "remove-cell"]
-    exenv = "notebook"
-
 # %%
 from ast import literal_eval
 from warnings import warn
@@ -47,15 +34,16 @@ from statGLOW.utils import does_not_warn
 import statGLOW.stats.symtensor.symtensor.utils as utils
 
 from typing import Union, ClassVar, Any, Iterator, Generator, Dict, List, Tuple, Set
-from statGLOW.smttask_ml.scityping import Serializable, Array, DType
+from scityping import Serializable, Array, DType
 
-# %% tags=["hide-input"]
-if exenv in {"notebook", "jbook"}:
-    import holoviews as hv
-    hv.extension('bokeh')
+# %% tags=["hide-input", "active-ipynb"]
+# # Notebook only imports
+# import holoviews as hv
+# hv.extension('bokeh')
 
 # %%
 __all__ = ["PermSymmetricTensor"]
+
 
 # %% [markdown]
 # ## Rationale
@@ -192,69 +180,69 @@ __all__ = ["PermSymmetricTensor"]
 # %% [markdown]
 # ### Usage
 
-# %% tags=["hide-output"]
-if exenv in {"notebook", "jbook"}:
-    from permcls_symmetric_tensor import PermClsSymmetricTensor
+# %% tags=["hide-output", "active-ipynb"]
+#     # Indented code below is executed only when run in a notebook
+#     from permcls_symmetric_tensor import PermClsSymmetricTensor
 
 # %% [markdown]
 # When created, `SymmetricTensors` default to being all zero. Note that only one scalar value is saved per “permutation class”, making this especially space efficient.
 
-    # %%
-    A = PermClsSymmetricTensor(rank=4, dim=6)
-    if exenv in {"notebook", "jbook"}: display(A)
+# %% tags=["active-ipynb"]
+#     A = PermClsSymmetricTensor(rank=4, dim=6)
+#     display(A)
 
 # %% [markdown]
 # (▲) Each permutation class can be assigned either a scalar, or an array of the same length as the number of independent components of that class. For example, to make a tensor with 1 on the diagonal and different non-zero values for the double paired terms `'iijj'`, we can do the following.
 # Note the use of `get_permclass_size` to avoid having to compute how many independent `'iijj'` terms there are.
 
-    # %%
-    A['iiii'] = 1
-    A['iijj'] = np.arange(A.get_permclass_size('iijj'))
-    if exenv in {"notebook", "jbook"}: display(A)
+# %% tags=["active-ipynb"]
+#     A['iiii'] = 1
+#     A['iijj'] = np.arange(A.get_permclass_size('iijj'))
+#     display(A)
 
 # %% [markdown]
 # The `indep_iter` and `index_iter` methods can be used to obtain a list of values where *each independent component appears exactly once*. (▲) Note that component values stored as scalars are expanded to the size of their class.
 
-    # %%
-    hv.Table(zip((str(idx) for idx in A.index_iter()),
-                 A.indep_iter()),
-             kdims=["broadcastable index"], vdims=["value"])
+# %% tags=["active-ipynb"]
+#     hv.Table(zip((str(idx) for idx in A.index_iter()),
+#                  A.indep_iter()),
+#              kdims=["broadcastable index"], vdims=["value"])
 
 # %% [markdown]
 # Conversely, the `flat` method will return as many times as it appears in the full tensor, as though it was called on a dense representation of that tensor (although the order will be different).
 #
 # `flat_index` returns the index associated to each value.
 
-    # %%
-    hv.Table(zip(A.flat_index, A.flat), kdims=["index"], vdims=["value"])
+# %% tags=["active-ipynb"]
+#     hv.Table(zip(A.flat_index, A.flat), kdims=["index"], vdims=["value"])
 
 # %% [markdown]
 # The number of independent components can be retrieved with the `size` attribute.
 
-    # %%
-    A.size
+# %% tags=["active-ipynb"]
+#     A.size
 
 # %% [markdown]
 # To get the size of the full tensor, we need to multiply each permutation class $\hat{σ}$ size by its multiplicity $γ_{\hat{σ}}$ (the number of times components of that class are repeated due to symmetry).
 
-    # %%
-    (math.prod(A.shape)
-     == sum(A.get_permclass_size(σcls)*A.get_permclass_multiplicity(σcls)
-            for σcls in A.perm_classes)
-     == A.dim**A.rank
-     == 1296)
+# %% tags=["active-ipynb"]
+#     (math.prod(A.shape)
+#      == sum(A.get_permclass_size(σcls)*A.get_permclass_multiplicity(σcls)
+#             for σcls in A.perm_classes)
+#      == A.dim**A.rank
+#      == 1296)
 
 # %% [markdown]
 # Like the sparse arrays of *scipy.sparse*, a `SymmetricTensor` has a `.todense()` method which returns the equivalent dense NumPy array.
 
-    # %%
-    Adense = A.todense()
+# %% tags=["active-ipynb"]
+#     Adense = A.todense()
 
-    # %% tags=["hide-input"]
-    l1 = str(Adense[:1,:2])[:-1]
-    l2 = str(Adense[1:2,:2])[1:]
-    print(l1[:-1] + "\n\n   ...\n\n  " + l1[-1] + "\n\n"
-          + " " + l2[:-2] + "\n\n   ...\n\n  " + l2[-2] + "\n\n...\n\n" + l2[-1])
+# %% tags=["hide-input", "active-ipynb"]
+#     l1 = str(Adense[:1,:2])[:-1]
+#     l2 = str(Adense[1:2,:2])[1:]
+#     print(l1[:-1] + "\n\n   ...\n\n  " + l1[-1] + "\n\n"
+#           + " " + l2[:-2] + "\n\n   ...\n\n  " + l2[-2] + "\n\n...\n\n" + l2[-1])
 
 # %% [markdown]
 # ## Implementation
