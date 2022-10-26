@@ -44,7 +44,7 @@ from mackelab_toolbox.utils import TimeThis, total_size_handler
 
 from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
                     Dict, List, Tuple, Set)
-from scityping import Number
+from scityping import Number, Serializable
 from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
@@ -54,7 +54,7 @@ from scityping.torch import TorchTensor
 # import utils as utils
 
 # %% tags=["active-py"]
-Script only imports
+#Script only imports
 from . import utils
 
 # %%
@@ -571,6 +571,11 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         def json_encoder(cls, symtensor: SymmetricTensor):
             return cls(rank=symtensor.rank, dim=symtensor.dim,
                        data={str(k): v for k,v in symtensor.items()})
+        
+        #Todo: Write encode funtion
+        def encode(self,): 
+            #dirty hack
+            pass
 
     #### Subclassing magic ####
 

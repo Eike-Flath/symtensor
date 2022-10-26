@@ -50,14 +50,16 @@ from scityping import Number
 from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
-# %%
-from torch_symtensor import TorchSymmetricTensor
+# %% tags=["active-ipynb", "remove-input"]
+# # Module only imports
+# from symtensor.symtensor.torch_symtensor import TorchSymmetricTensor
 
 # %% tags=["active-py", "remove-cell"]
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
+from .torch_symtensor import TorchSymmetricTensor
 from . import base
 from . import utils
-
 
 
 # %%
@@ -168,8 +170,6 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
         self._data = data
     
     ## Dunder methods ##
-
-    # def __str__(self)
 
     def __repr__(self):
         s = f"{type(self).__qualname__}(rank: {self.rank}, dim: {self.dim})"

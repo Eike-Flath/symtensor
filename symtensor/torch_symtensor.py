@@ -30,12 +30,13 @@ from scityping.torch import TorchTensor
 
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
-# from symtensor import SymmetricTensor, _elementwise_comp, _array_comp
-# from symtensor import base
-# from symtensor import utils
+# #from symtensor import SymmetricTensor
+# from symtensor.symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
+# from symtensor.symtensor import base
+# from symtensor.symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+#Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -176,6 +177,11 @@ class TorchSymmetricTensor(SymmetricTensor):
         def json_encoder(cls, symtensor: SymmetricTensor):
             return cls(rank=symtensor.rank, dim=symtensor.dim,
                        data={str(k): v for k,v in symtensor.items()})
+        
+        #Todo: Write encode funtion
+        def encode(self,): 
+            #dirty hack
+            pass
 
     ## Array creation, copy, etc. ##
 
@@ -280,7 +286,7 @@ def result_array(*arrays_and_types) -> None:
 # ## `DenseTorchSymmetricTensor`
 
 # %%
-from .dense_symtensor import DenseSymmetricTensor
+from symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
 
 class DenseTorchSymmetricTensor(DenseSymmetricTensor, TorchSymmetricTensor):
     _data                : Union[TorchTensor]
