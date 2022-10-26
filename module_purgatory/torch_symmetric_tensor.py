@@ -33,11 +33,9 @@ from collections import Counter
 import pytest
 from mackelab_toolbox.utils import TimeThis
 
-import statGLOW
-from statGLOW.smttask_ml.scityping import Serializable, TorchTensor, DType
-from statGLOW.utils import does_not_warn
-from statGLOW.stats.symtensor import *
-from statGLOW.stats.symtensor.symtensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two, multinom
+from scityping import Serializable, TorchTensor, DType
+from symtensor import *
+from symtensor.permcls_symmetric_tensor import _get_perm_class,_get_perm_class_size,_indexcounts, partition_list_into_two, multinom
 
 # %%
 if __name__ == "__main__":
@@ -673,7 +671,6 @@ class TorchSymmetricTensor(PermClsSymmetricTensor):
 # %%
 if __name__ == "__main__":
     import pytest
-    from statGLOW.utils import does_not_warn
     from collections import Counter
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):

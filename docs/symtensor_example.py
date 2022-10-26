@@ -14,8 +14,7 @@
 # # Example usage
 
 # %%
-import statGLOW.typing
-from statGLOW.stats.symtensor import DenseSymmetricTensor
+from symtensor import DenseSymmetricTensor
 
 import numpy as np
 

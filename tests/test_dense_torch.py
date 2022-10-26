@@ -16,9 +16,8 @@
 from mackelab_toolbox.utils import Code
 
 # %%
-import statGLOW.typing
-from statGLOW.stats.symtensor.symtensor.torch_symtensor import DenseTorchSymmetricTensor
-from statGLOW.stats.symtensor.symtensor.testing import unittests
+from symtensor.torch_symtensor import DenseTorchSymmetricTensor
+from symtensor.testing import unittests
 
 # %% [markdown]
 # ## Instantiation & dtypes

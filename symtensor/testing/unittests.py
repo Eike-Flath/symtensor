@@ -32,7 +32,7 @@ from statGLOW.stats.symtensor import SymmetricTensor
 from statGLOW.stats.symtensor import utils, symalg
 # For serialization test
 from pydantic import BaseModel
-from statGLOW.smttask_ml.scityping import Serializable, Array, DType
+from scityping import Serializable, Array, DType
 
 
 # %%

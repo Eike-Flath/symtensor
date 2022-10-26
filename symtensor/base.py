@@ -17,18 +17,6 @@
 from __future__ import annotations
 import statGLOW.typing
 
-# %% tags=["remove-cell", "active-py"]
-if __name__ != "__main__":
-    exenv = "module"
-else:
-    exenv = "script"
-
-# %% tags=["remove-cell", "active-ipynb"]
-# exenv = "jbook"
-
-# %% tags=["skip-execution", "remove-cell", "active-ipynb"]
-# exenv = "notebook"
-
 # %% tags=["remove-input"]
 from warnings import warn
 import logging
@@ -56,14 +44,18 @@ from numpy.core.overrides import array_function_dispatch as _array_function_disp
 from mackelab_toolbox.utils import TimeThis, total_size_handler
 import statGLOW
 from statGLOW.utils import does_not_warn
-if exenv in {"jbook", "notebook"}:
-    from statGLOW.stats.symtensor import utils
-else:
-    from . import utils
 
 from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
                     Dict, List, Tuple, Set)
-from statGLOW.smttask_ml.scityping import Serializable, Array, DType, Number
+from scityping import Serializable, Array, DType, Number
+
+# %% tags=["active-ipynb"]
+# # Notebook only imports
+# from symtensor import utils
+
+# %% tags=["active-py"]
+# Script only imports
+from . import utils
 
 # %%
 __all__ = ["SymmetricTensor"]

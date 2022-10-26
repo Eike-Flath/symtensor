@@ -49,16 +49,18 @@ from typing import KeysView, ValuesView, ItemsView
 import numpy as np
 
 # %%
-if exenv in {"jbook", "notebook"}:
-    from statGLOW.stats.symtensor.symtensor.base import SymmetricTensor
-    from statGLOW.stats.symtensor import utils
-else:
-    from .base import SymmetricTensor
-    from . import utils
-
-# %%
 from typing import Generator
-from statGLOW.smttask_ml.scityping import Number, Array, DType
+from scityping import Number, Array, DType
+
+# %% tags=["active-ipynb"]
+# # Notebook only imports
+# from symtensor.base import SymmetricTensor
+# from symtensor import utils
+
+# %% tags=["active-py"]
+# Script only imports
+from .base import SymmetricTensor
+from . import utils
 
 
 # %% [markdown]

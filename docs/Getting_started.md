@@ -1,15 +1,11 @@
 ---
 jupytext:
   formats: md:myst
-  notebook_metadata_filter: -jupytext.text_representation.jupytext_version
+  notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
   text_representation:
     extension: .md
     format_name: myst
     format_version: 0.13
-kernelspec:
-  display_name: Python (statGLOW)
-  language: python
-  name: statglow
 ---
 
 # Getting started
@@ -18,7 +14,6 @@ kernelspec:
 :tags: [remove-input]
 
 from __future__ import annotations
-import statGLOW.typing
 ```
 
 ## Rationale
@@ -145,12 +140,12 @@ Symmetric tensors with [different memory layouts](./symmetric_formats.md) are pr
 :::
 
 ```{code-cell} ipython3
-from statGLOW.stats.symtensor import SymmetricTensor, DenseSymmetricTensor
+from symtensor import SymmetricTensor, DenseSymmetricTensor
 ```
 
 ```{code-cell} ipython3
 import pytest
-from statGLOW.stats.symtensor import SymmetricTensor, DenseSymmetricTensor
+from symtensor import SymmetricTensor, DenseSymmetricTensor
 
 import holoviews as hv
 hv.extension("bokeh")
