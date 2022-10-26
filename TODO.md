@@ -1,3 +1,11 @@
+### Package migration
+
+- Replace any use of `exenv` by jupytext tags
+- Replace any use of `__main__` by jupytext tags
+- Figure out what `get_idx` does, update docstring and remove statGLOW dep
+- Remove mackelab_toolbox dependencies (include code here if necessary)
+- Find how to specify dev / testing requirements
+
 ### CPU to GPU:
 We want to move heavy calculations from CPU to GPU using `pytorch`.
 

@@ -15,7 +15,6 @@
 
 # %% tags=["remove-cell"]
 from __future__ import annotations
-import statGLOW.typing
 
 # %% tags=["remove-input"]
 from warnings import warn
@@ -42,8 +41,6 @@ from tqdm.auto import tqdm
 from numpy.core.overrides import array_function_dispatch as _array_function_dispatch
 
 from mackelab_toolbox.utils import TimeThis, total_size_handler
-import statGLOW
-from statGLOW.utils import does_not_warn
 
 from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
                     Dict, List, Tuple, Set)

@@ -1,0 +1,6 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta:__legacy__"
+
+# setuptools_scm allows to automatically obtain the version number from git tags
+[tool.setuptools_scm]
