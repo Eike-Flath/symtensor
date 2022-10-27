@@ -55,7 +55,7 @@ from scityping.torch import TorchTensor
 # from symtensor.symtensor.torch_symtensor import TorchSymmetricTensor
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from .torch_symtensor import TorchSymmetricTensor
 from . import base
@@ -215,3 +215,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
             raise KeyError(f"{key}")
 
 
+
+# %%
+if __name__ == "__main__":
+    DecompSymmetricTensor  # This makes it easier to write reusable tests for different SymmetricTensor formats
+
+# %%
+if __name__ == "__main__":
+    # instantiation
+    A = DecompSymmetricTensor(rank = 1, dim =10) 
