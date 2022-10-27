@@ -9,6 +9,9 @@
   + GitSHA
 - Find how to specify dev / testing requirements
 - Remove Pydantic dependency? We could include the type coercion in the `Data.encode` methods (defined in base.py and torch_symtensor.py)
+- Implement `symmetric_outer` and `symmetric_tensordot` in PermClsSymmetricTensor
+- [PermClsSymmetricTensor] Deserialization of stringified σcls tuples is currently in two places: `Data.decode` and `_validate_data` (dict branch)
+  Should be consolidated into one place.
 
 ### CPU to GPU:
 We want to move heavy calculations from CPU to GPU using `pytorch`.

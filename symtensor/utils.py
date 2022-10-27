@@ -185,7 +185,7 @@ if exenv in {"notebook", "jbook"}:
     from symtensor import DenseSymmetricTensor
 
     A = DenseSymmetricTensor(rank=2, dim=3)
-    # Context manager works as expected…
+    # Context manager works as expected…
     with make_array_like(DenseSymmetricTensor(0,0), np.core.einsumfunc):
         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
@@ -560,11 +560,6 @@ def get_permclass_multiplicity(σcls: Union[str, Tuple[int]]) -> List[int]:
        difference that the output always has the same length as the rank.
 
     """
-    # NB: We don’t use `permclass_label_to_counts` here because we need
-    #     something slightly different.
-    #     Permclass label counts: 'iijk' -> (2,1,1)
-    #     What we want:           'iijk' -> (2,1,1,0)
-    #        (i.e. as many entries as the rank)
     if isinstance(σcls, str):
         index_counts = permclass_label_to_counts(σcls)
         rank = sum(index_counts)
@@ -644,7 +639,7 @@ def _all_index_counts(remaining_idcs, remaining_counts, max_count):
     if remaining_counts <= max_count:
         if remaining_counts == 0:
             # This can happen with a rank 0 tensor; in that case, remaining_idcs = remaining_counts = max_count = 0
-            # In this case, return an empty iterator – there are no indices left
+            # In this case, return an empty iterator – there are no indices left
             yield []
         else:
             yield [remaining_counts]

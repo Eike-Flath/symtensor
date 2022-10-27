@@ -36,7 +36,7 @@ from scityping.torch import TorchTensor
 # from symtensor.symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -100,8 +100,19 @@ _numpy_to_torch_dtypes = bijection({
     np.dtype(np.complex128) : torch.complex128
 })
 
-# %% [markdown]
+# %% [markdown] tags=[]
 # ## Abstract `TorchSymmetricTensor`
+#
+# Compared to `SymmetricTensor`:
+# + *Adds* the following attributes :
+#     - `device`: Set to either `"cpu"` or `"gpu"`.
+#
+# + *Removes* the following methods:
+#     - `astype`: Torch tensors don't implement it
+#
+# + *Modifies* the following private methods:
+#     - `_validate_dataarray`: Validates to Torch types. This is anyway normally overridden by subclasses.
+#     - `_set_dtype`: Uses Torch dtypes
 
 # %%
 class TorchSymmetricTensor(SymmetricTensor):

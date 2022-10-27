@@ -21,7 +21,9 @@ from ast import literal_eval
 from warnings import warn
 from collections import Counter
 import itertools
-import time
+import more_itertools
+import re  # Used in PermClsSymmetricTensor.Data.decode
+from numbers import Number
 
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
@@ -31,12 +33,15 @@ from symtensor import utils
 from typing import Union, ClassVar, Any, Iterator, Generator, Dict, List, Tuple, Set
 from scityping import Serializable
 from scityping.numpy import Array, DType
+from scityping.pydantic import dataclass
 
 # %% [markdown] tags=[]
 # **TODO** Include `TimeThis` (or equivalent) in symtensor.testing.utils
 
+# %% [markdown]
+# Notebook only imports
+
 # %% tags=["active-ipynb", "remove-input"]
-# # Notebook only imports
 # from symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
 # from symtensor import base
 # from symtensor import utils
@@ -44,8 +49,10 @@ from scityping.numpy import Array, DType
 # import holoviews as hv
 # hv.extension('bokeh')
 
-# %% tags=["active-py", "remove-cell"]
+# %% [markdown]
 # Script only imports
+
+# %% tags=["active-py", "remove-cell"]
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -86,7 +93,7 @@ __all__ = ["PermSymmetricTensor"]
 # **(△) Construction of symmetric tensors.**
 # ~ Allocation in terms of permutation classes makes it extremely convenient to assign to all entries of a particular form, e.g. `'iijj'`.
 #
-# **(△) Storing symmetric tensors in the _most_ memory-efficient manner.**
+# **(△) Storing symmetric tensors in the most memory-efficient manner.**
 # ~ When permutation classes can be represented as scalars, this is even more efficient than other symmetric storage layouts.
 #
 # **Computing combinatorics**
@@ -109,7 +116,7 @@ __all__ = ["PermSymmetricTensor"]
 # ~ &nbsp;
 #
 # **(▽) Contractions with arrays or symmetric tensors**
-# ~ Because of the compressed memory layout, dot products or contractions require looping over indices in non-trivial order. Blocked layouts (as proposed by Schatz et al (2014)), or a fully lexicographic layout, should allow for much faster memory-aligned operations at least in some cases.
+# ~ Because of the compressed memory layout, dot products or contractions require looping over indices in non-trivial order. Blocked layouts (as proposed by Schatz et al (2014)), or a fully lexicographic layout, should allow for much faster memory-aligned operations, at least in some cases.
 #
 # ### Situations for which a `PermClsSymmetricTensor` may be less well suited:
 #
@@ -202,18 +209,18 @@ __all__ = ["PermSymmetricTensor"]
 
 # %% [markdown]
 # (▲) Each permutation class can be assigned either a scalar, or an array of the same length as the number of independent components of that class. For example, to make a tensor with 1 on the diagonal and different non-zero values for the double paired terms `'iijj'`, we can do the following.
-# Note the use of `get_permclass_size` to avoid having to compute how many independent `'iijj'` terms there are.
+# Note the use of `utils.get_permclass_size` to avoid having to compute how many independent `'iijj'` terms there are.
 
 # %% tags=["active-ipynb"]
 #     A['iiii'] = 1
-#     A['iijj'] = np.arange(A.get_permclass_size('iijj'))
+#     A['iijj'] = np.arange(utils.get_permclass_size('iijj', A.dim))
 #     display(A)
 
 # %% [markdown]
-# The `indep_iter` and `index_iter` methods can be used to obtain a list of values where *each independent component appears exactly once*. (▲) Note that component values stored as scalars are expanded to the size of their class.
+# The `indep_iter` and `indep_iter_index` methods can be used to obtain a list of values where *each independent component appears exactly once*. (▲) Note that component values stored as scalars are expanded to the size of their class.
 
 # %% tags=["active-ipynb"]
-#     hv.Table(zip((str(idx) for idx in A.index_iter()),
+#     hv.Table(zip((str(idx) for idx in A.indep_iter_index()),
 #                  A.indep_iter()),
 #              kdims=["broadcastable index"], vdims=["value"])
 
@@ -236,7 +243,7 @@ __all__ = ["PermSymmetricTensor"]
 
 # %% tags=["active-ipynb"]
 #     (math.prod(A.shape)
-#      == sum(A.get_permclass_size(σcls)*A.get_permclass_multiplicity(σcls)
+#      == sum(utils.get_permclass_size(σcls, A.dim) * utils.get_permclass_multiplicity(σcls)
 #             for σcls in A.perm_classes)
 #      == A.dim**A.rank
 #      == 1296)
@@ -276,7 +283,7 @@ __all__ = ["PermSymmetricTensor"]
 # The implementation iterates through index positions from left to right and exploits the fact that index class representatives are ordered from highest to lowest index multiplicity: if the multiplicities of the current ($j$) and previous ($i$) indices match, then they are permutable, and only values $j > i$ are returned. Thus, the logic for generating the indices $j$ at a single position looks as follows:
 # [![](https://mermaid.ink/img/eyJjb2RlIjoiZ3JhcGggTFJcbiAgICBpbnB1dHNbcHJldmlvdXMgaW5kZXg6IGk8YnI-Y3VycmVudCBpbmRleDogajxicj5tdWx0aXBsaWNpdHkgb2YgaTogbWk8YnI-bXVsdGlwbGljaXR5IG9mIGo6IG1qPGJyPmFzc2lnbmVkIGluZGljZXM6IEldICAtLT4gQ3ttaSA9PSBtaiA_fVxuICAgIEMgLS0-fHllc3wgRFtcInlpZWxkIGogPiBpLCBqIOKIiSBJXCJdXG4gICAgQyAtLT58bm98IEVbXCJ5aWVsZCBqIOKJoCBpLCBqIOKIiSBJXCJdIiwibWVybWFpZCI6e30sInVwZGF0ZUVkaXRvciI6ZmFsc2UsImF1dG9TeW5jIjp0cnVlLCJ1cGRhdGVEaWFncmFtIjpmYWxzZX0)](https://mermaid-js.github.io/mermaid-live-editor/edit/##eyJjb2RlIjoiZ3JhcGggTFJcbiAgICBpbnB1dHNbcHJldmlvdXMgaW5kZXg6IGk8YnI-Y3VycmVudCBpbmRleDogajxicj5tdWx0aXBsaWNpdHkgb2YgaTogbWk8YnI-bXVsdGlwbGljaXR5IG9mIGo6IG1qPGJyPmFzc2lnbmVkIGluZGljZXM6IEldICAtLT4gQ3ttaSA9PSBtaiA_fVxuICAgIEMgLS0-fHllc3wgRFtcInlpZWxkIGogPiBpLCBqIOKIiSBJXCJdXG4gICAgQyAtLT58bm98IEVbXCJ5aWVsZCBqIOKJoCBpLCBqIOKIiSBcIl0iLCJtZXJtYWlkIjoie30iLCJ1cGRhdGVFZGl0b3IiOmZhbHNlLCJhdXRvU3luYyI6dHJ1ZSwidXBkYXRlRGlhZ3JhbSI6ZmFsc2V9)
 #
-# > **NOTE** Each index returned is only one of possibly many equivalent permutations. The `SymmetricTensor.index_iter` method, in contrast to this function, combines all these permutations (i.e. all elements of the index class) into a single “[advanced index]”(https://numpy.org/doc/stable/reference/arrays.indexing.html#advanced-indexing).
+# > **NOTE** Each index returned is only one of possibly many equivalent permutations. The `SymmetricTensor.indep_iter_index` method, in contrast to this function, combines all these permutations (i.e. all elements of the index class) into a single “[advanced index]”(https://numpy.org/doc/stable/reference/arrays.indexing.html#advanced-indexing).
 
 # %%
 def _sub_σindex_iter(mult: Tuple[int], dim: int, prev_i: int, assigned_i: Set[int]):
@@ -446,8 +453,8 @@ def _convert_dense_index(rank, dim, key: Union[Tuple[int],int]
     needed to index the matching value in `_data`.
     """
     if isinstance(key, tuple):
-        # Use the standardized key so that it matches values returned by index_iter
-        key = _get_index_representative(key)
+        # Use the standardized key so that it matches values returned by indep_iter_index
+        key = get_index_representative(key)
         σcls = utils._get_permclass(key)
         i = pos_dict[(rank, dim)][σcls][key]
         return σcls, i
@@ -490,11 +497,11 @@ def _convert_dense_index(rank, dim, key: Union[Tuple[int],int]
 # - *get_permclass(index: Tuple[int])*: From a specific index (`(0,0,1)`), return class string (`'iij'`).
 # - *permclass_counts_to_label(counts: Tuple[int])*: Convert permutation class tuple (counts) (`(2,1)`) to class string (e.g. `'iij'`).
 # - *permclass_label_to_counts(σcls: str | Tuple[int])*: Convert permutation class string to class tuple (counts).
-# - *get_permclass_size(σcls: str)* : Number of independent components in a permutation class, i.e. the size of the storage vector.
-# - *get_permclass_multiplicity(σcls: str)*: Number of times components in this permutation class are repeated in the full tensor.
+# - [moved to utils] *get_permclass_size(σcls: str)* : Number of independent components in a permutation class, i.e. the size of the storage vector.
+# - [moved to utils] *get_permclass_multiplicity(σcls: str)*: Number of times components in this permutation class are repeated in the full tensor.
 # - *todense()*
 # - *indep_iter()*     : Iterator over independent components (i.e. *excluding* symmetric equivalents).
-# - *index_iter()*     : Indices aligned with *indep_iter*. Each index includes all symmetric components, such that equivalent components of a dense tensor can be set or retrieved simulatneously.
+# - *indep_iter_index()*     : Indices aligned with *indep_iter*. Each index includes all symmetric components, such that equivalent components of a dense tensor can be set or retrieved simulatneously.
 # - *permcls_indep_iter(σcls: str)*     : Iterator over independent components (i.e. *excluding* symmetric equivalents) within a permutation class.
 # - *permcls_index_iter(σcls: str)*     : Indices aligned with *indep_permcls_iter*. Each index includes all symmetric components, such that equivalent components of a dense tensor can be set or retrieved simulatneously.
 #
@@ -539,9 +546,9 @@ class PermClsSymmetricTensor(SymmetricTensor):
     #_dtype                : DType
     _data                : Dict[Tuple[int], Union[float, Array[float,1]]]
 
-    def __init__(self, rank: int, dim: int,
+    def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Optional[Dict[Union[Tuple[int,...], str],
-                                     Array[float,1]]]=None,
+                                     Array[float,1]]]=np.float64(0),
                  dtype: Union[None,str,DType]=None):
         """
         Parameters
@@ -553,16 +560,18 @@ class PermClsSymmetricTensor(SymmetricTensor):
            If only `dtype` is provided, it determines the data dtype.
         """
         super().__init__(rank=rank, dim=dim, data=data, dtype=dtype)
-        # Sets rank, dim, device, _σclass_sizes, _σclass_multiplicities
+        # Sets rank, dim
         # Calls _validate_data
         # Sets _dtype
         # Calls _init_data
 
-    @classmethod
-    def _validate_data(cls,
+    def _validate_data(self,
                        data: Optional[Dict[Union[Tuple[int,...], str],
-                                      Array[Any,1]]]
-                       ) -> Dict[Tuple[int,...], Array[Any,1]]:
+                                      Array[Any,1]]],
+                       symmetrize=False
+                       ) -> Tuple[Dict[Tuple[int,...], Array[Any,1]],
+                                       np.dtype,
+                                       Union[Tuple[int], None] ]:
         """
         {{base_docstring}}
 
@@ -572,59 +581,125 @@ class PermClsSymmetricTensor(SymmetricTensor):
         - Asserting that all array dtypes are numeric
         - Infer the dtype by applying type promotion on data dtypes
         """
-        if isinstance(data, np.ndarray):
-            raise NotImplementedError("Casting plain arrays to PermClsSymmetricTensor "
-                                      "is not yet supported.")
-            data, datadtype = DenseSymmetricTensor._validate_data(data, symmetrize)
-            # TODO: 1. Remove dependency on self.perm_classes (through permcls_indep_iter_repindex)
-            #       2. Test
-            if not utils.is_symmetric(data):
-                raise ValueError("Data array is not symmetric.")
-            data = {σcls: data[list(self.permcls_indep_iter_repindex(σcls))]
-                    for σcls in utils._perm_classes(self.rank)}
+        # Overview:
+        # - 3 cases for data: scalar, dense array, mapping (matching internal σcls storage)
+        # - For each case, we need to determine
+        #   + Internal representation of data ({σcls: 1D-array})
+        #   + dtype, as inferred from the data
+        #   + shape, as inferred from the data
+        # - These are returned as `data`, `datatype`, `datashape`
+        # - `SymmetricTensor.__init__` compares these values with self.rank & self.dim,
+        #   inferring for missing rank or dim and ensuring that all inferred values are consistent
+        if isinstance(data, Number):
+            arr_data = self._validate_dataarray(data)  # Normalizes to either Numpy or Torch array-like
+            data = {σcls: arr_data for σcls in utils._perm_classes(self.rank)}
+            datadtype = arr_data.dtype
+            datashape = None  # SymmetricTensor.__init__ discards shape for scalar init values
+        elif isinstance(data, np.ndarray):
+            # raise NotImplementedError("Casting plain arrays to PermClsSymmetricTensor "
+            #                           "is not yet supported.")
+            # data, datadtype = DenseSymmetricTensor._validate_data(data, symmetrize)
+            # # TODO: 1. Remove dependency on self.perm_classes (through permcls_indep_iter_repindex)
+            # #       2. Test
+            rank = np.ndim(data) if self.rank is None else self.rank
+            dim = max(data.shape) if self.dim is None else self.dim
+            datashape = (dim,)*rank
+            datadtype = data.dtype
+            broadcasted_data = np.broadcast_to(data, datashape)
+            if rank == 0:
+                data = {(): data}
+            else:
+                if symmetrize:
+                    broadcasted_data = utils.symmetrize(broadcasted_data)
+                elif not utils.is_symmetric(broadcasted_data):
+                    raise ValueError("Data array is not symmetric.")
+                data = {σcls: self._validate_dataarray(
+                            broadcasted_data[tuple(np.array(idcs)
+                                for idcs in zip(*σindex_iter(σcls, dim)))])
+                        for σcls in utils._perm_classes(rank)
+                        if len(σcls) <= dim}  # This condition guards against situations where rank > dim
         elif isinstance(data, dict):
+            if len(data) == 0:
+                raise NotImplementedError("Initializating with empty data is not implemented")
+            # NB: If data is passed as a valid dict, it is by construction symmetric
             # If `data` comes from serialized JSON; revert strings to tuples
+            # TODO: Better do the str -> tuple deserialization in Data.decode
             for key in list(data):
                 if isinstance(key, str):
                     newkey = literal_eval(key)  # NB: That this is Tuple[int] is verified below
                     if newkey in data:
                         raise ValueError(f"`data` contains the key '{key}' "
-                                         "twice: in both its original and "
-                                         "serialized (str) form.")
+                                         "twice: possibly in both its original "
+                                         "and serialized (str) form.")
                     data[newkey] = data[key]
                     del data[key]
 
             # Infer the data dtype
-            datadtype = np.result_type(data.values())
-            if not np.issubdtype(datadtype, np.number):
-                    raise TypeError("Data should have numeric dtypes; received "
-                                    f"{[np.result_type(v) for v in data.values()]}.")
+            data = {k: self._validate_dataarray(v) for k, v in data.items()}
+            datadtype = np.result_type(*data.values())
 
-            # Assert that the deserialized data has the right shape
-            # Convert scalars to 0-d arrays
-            # Ensure dtypes are numeric
-            if not data.keys() <= set(utils._perm_classes(self.rank)):  # NB: Allow setting only some σ-classes
-                raise ValueError("`data` argument to PermClsSymmetricTensor does not "
-                                 "have the expected format.\nExpected keys to be a subset "
-                                 f"of: {sorted(utils._perm_classes(self.rank))}\n"
-                                 f"Received keys:{sorted(data)}")
-            for k, v in data.items():
-                if np.isscalar(v):
-                    data[k] = v = np.array(v)
-                if v.ndim > 0 and v.shape != (self._σclass_sizes[k],):
-                    raise ValueError(f"Data for permutation class {self.permclass_counts_to_label(k)} "
-                                     f"should have shape {(self._σclass_sizes[k],)}, "
-                                     f"but the provided data has shape {v.shape}.")
+            rank = self.rank
+            if rank is None:
+                raise NotImplementedError("To instantiate with a mapping, we need to implement code which infers rank and dim from the mapping itself.")
+            dim = self.dim
+            if dim is None:
+                dims = set(sum(counts) for counts in data.keys())
+                if len(dims) > 1:
+                    raise ValueError("Data dict inconsistent: keys don't all have the same dimension.")
+                dim = next(iter(dims))
+
+            datashape = (dim,)*rank
 
         else:
             raise TypeError("If provided, `data` must be a dictionary with "
                             "the format {σ class: data vector}")
 
-        return data, datadtype
+        return data, datadtype, datashape
 
-    def _init_data(self, data:  Dict[Tuple[int,...], Array[Any,1]]):
-        self._data = {k: v.astype(self._dtype) for k, v in data.items() 
-                      if v.dtype != self._dtype}
+    def _init_data(self, data:  Dict[Tuple[int,...], Array[Any,1]], symmetrize: bool):
+        # Assert that the data has the right shape
+        # Convert scalars to 0-d arrays
+        # Ensure dtypes are numeric
+        if not data.keys() <= set(utils._perm_classes(self.rank)):  # NB: Allow setting only some σ-classes
+            raise ValueError("`data` argument to PermClsSymmetricTensor does not "
+                             "have the expected format.\nExpected keys to be a subset "
+                             f"of: {sorted(utils._perm_classes(self.rank))}\n"
+                             f"Received keys:{sorted(data)}")
+        self._data = {k: np.array([], dtype=self._dtype) for k in utils._perm_classes(self.rank)}
+        for k, v in data.items():
+            # if np.isscalar(v):
+            #     data[k] = v = np.array(v)
+            v = self._validate_dataarray(v)
+            if v.ndim > 0 and v.shape != (utils._get_permclass_size(k, self.dim),):
+                raise ValueError(f"Data for permutation class {utils.permclass_counts_to_label(k)} "
+                                 f"should have shape {(utils._get_permclass_size(k, self.dim),)}, "
+                                 f"but the provided data has shape {v.shape}.")
+            if v.dtype != self._dtype:
+                v = v.astype(self._dtype)
+            self._data[k] = v
+
+    def _set_raw_data(self, key, arr):
+        dataarr = self._data.get(key)
+        assert key is not None, "Provided key does not match a dictionary entry."
+        self._data[key] = arr
+
+    ## Serialization ##
+    @dataclass
+    class Data(SymmetricTensor.Data):
+        #rank: int
+        #dim: int
+        data: Dict[str, Array]  # NB: JSON keys cannot be tuples => convert to str
+        
+        @staticmethod
+        def encode(symtensor: SymmetricTensor): 
+            return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
+        @staticmethod
+        def decode(data: "SymmetricTensor.Data"):
+            # Invert the conversion tuple -> str that was done in `encode`
+            data_dict = {tuple(int(k) for k in re.findall(r"\d+", key_str)): arr
+                         for key_str, arr in data.data.items()}
+            # Instantiate the expected tensor
+            return SymmetricTensor(rank, dim, data_dict)
 
     ## Dunder methods ##
 
@@ -632,40 +707,43 @@ class PermClsSymmetricTensor(SymmetricTensor):
 
     def __repr__(self):
         s = f"{type(self).__qualname__}(rank: {self.rank}, dim: {self.dim})"
-        lines = [f"  {self.permclass_counts_to_label(σcls)}: {value}"
-                 for σcls, value in self._data.items()]
+        data = getattr(self, "_data", None)
+        if data:
+            lines = [f"  {utils.permclass_counts_to_label(σcls)}: {value}"
+                     for σcls, value in self._data.items()]
+        else:
+            lines = []
         return "\n".join((s, *lines)) + "\n"  # Lists of SymmetricTensors look better if each tensor starts on its own line
 
     def __getitem__(self, key):
         """
         {{base_docstring}}
 
-        .. Note:: slices are not yet supported.
+        .. Note:: slices with bounds (e.g. [3:8]) are not yet supported.
         """
         if isinstance(key, str):
-            counts = self.permclass_label_to_counts(key)
+            counts = utils.permclass_label_to_counts(key)
             return self._data[counts]
 
         elif isinstance(key, tuple):
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
                 indices_fixed = tuple(i for i in key if isinstance(i,int))
                 slices = [i for i in key if isinstance(i,slice)]
+                assert len(indices_fixed) + len(slices) == len(key), "SymmetricTensor index should contain only integers and slices."
                 #Check for subslicing
-                subslicing = False
                 for s in slices:
-                    if any([x is not None for x in [s.start,s.step,s.stop]]):
-                        subslicing = True
+                    if s != slice(None):
                         raise NotImplementedError("Indexing with subslicing (for example SymmetricTensor[1:3, 0,0]) is not"
                                                   " currently implemented. Only slices of the type"
                                                   "[i_1,...,i_n,:,...,:] with i_1,..., i_n all integers are allowed.")
 
-                if not subslicing:
-                    new_rank = self.rank -len(indices_fixed)
-                    C = PermClsSymmetricTensor(rank = new_rank, dim = self.dim)
-                    for idx in C.permcls_indep_iter_repindex():
-                        C[idx] = self[idx +indices_fixed]
-                    return C
-
+                key = indices_fixed
+            if len(key) < self.rank:
+                new_rank = self.rank - len(key)
+                C = PermClsSymmetricTensor(rank=new_rank, dim=self.dim)
+                for idx in C.indep_iter_repindex():
+                    C[idx] = self[idx + key]
+                return C
             else:
                 σcls = utils._get_permclass(key)
                 vals = self._data[σcls]
@@ -674,25 +752,40 @@ class PermClsSymmetricTensor(SymmetricTensor):
                 else:
                     σcls, pos = _convert_dense_index(self.rank, self.dim, key)
                     return vals[pos]
+
         elif self.rank==1 and isinstance(key,int): #special rules for vectors
             vals = self._data[(1,)]
             return vals if np.isscalar(vals) else vals[key]
-        elif self.rank >1 and isinstance(key, int):
-            if self.dim ==1:
-                σcls, pos = self._convert_dense_index(self.rank, self.dim, key)
+
+        elif self.rank > 1 and isinstance(key, int):
+            if self.dim == 1:
+                σcls, pos = _convert_dense_index(self.rank, self.dim, key)
                 vals = self._data[σcls]
                 return vals if np.isscalar(vals) else vals[pos]
-            elif self.dim >1:
+            elif self.dim > 1:
                 B = PermClsSymmetricTensor(rank = self.rank-1, dim = self.dim)
-                for idx in B.permcls_indep_iter_repindex():
+                for idx in B.indep_iter_repindex():
                     B[idx] = self[idx+(key,)]
 
                 return B
+
         else:
             raise KeyError(f"{key}")
 
     def __setitem__(self, key, value):
-        if isinstance(key, str):
+        value = np.asarray(value).astype(self.dtype)
+        if key == slice(None):
+            # Special case: we allow replacing the entire data
+            dict_value, _, shape = self._validate_data(value)
+            if shape != self.shape or not dict_value.keys() <= self._data.keys():
+                raise ValueError("Cannot assign to SymmetricTensor: value has an incompatible shape.")
+            for k, v in dict_value.items():
+                # NB: User expects in-place assignment, so make sure we do this
+                if np.ndim(self._data[k]) == 0:
+                    self._data[k] = v
+                else:
+                    self._data[k][:] = v
+        elif isinstance(key, str):
             counts = utils._get_permclass(tuple(key))
             if counts not in self._data:
                 raise KeyError(f"'{key}' does not match any permutation class.\n"
@@ -713,7 +806,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
                 σcls = (1,)
                 pos = key
             else:
-                σcls, pos = self._convert_dense_index(self.rank, self.dim, key)
+                σcls, pos = _convert_dense_index(self.rank, self.dim, key)
             v = self._data[σcls]
             if np.ndim(v) == 0:
                 if pos == slice(None):  # Equivalent to setting the whole permutation class
@@ -723,7 +816,8 @@ class PermClsSymmetricTensor(SymmetricTensor):
                     pass
                 else:
                     # Value is no longer uniform for all positions => need to expand storage from scalar to vector
-                    v = v * np.ones(self._σclass_sizes[σcls], dtype=np.result_type(v, value))
+                    v = v * np.ones(utils._get_permclass_size(σcls, self.dim),
+                                    dtype=np.result_type(v, value))
                     v[pos] = value
                     self._data[σcls] = v
             else:
@@ -736,11 +830,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
     ## Translation functions ##
     # Mostly used internally, but part of the public API
 
-    # def device(self) -> Union[None, "torch.device"]:
-
     # def copy(self) -> PermClsSymmetricTensor
-
-    # def is_equal(self, other, prec =None)
 
     ## Public attributes & API ##
 
@@ -750,12 +840,15 @@ class PermClsSymmetricTensor(SymmetricTensor):
     # @property
     # def shape(self) -> Tuple[int,...]
 
-    # @property
-    # def size(self) -> int
+    @property
+    def size(self) -> int:
+        # `size` must return the maximum number of allocated elements.
+        # For permutation-class storage, this is exactly the number of independent components
+        return self.indep_size
 
     def todense(self) -> Array:
         A = np.empty(self.shape, self.dtype)
-        for idx, value in zip(self.index_iter(), self.indep_iter()):
+        for idx, value in zip(self.indep_iter_index(), self.indep_iter()):
             A[idx] = value
         return A
 
@@ -777,10 +870,10 @@ class PermClsSymmetricTensor(SymmetricTensor):
            to set values with this iterator (since it is an iterator rather
            than a view).
         """
-        for v, size, mult in zip(self._data.values(),
-                                 self._σclass_sizes.values(),
-                                 self._σclass_multiplicities.values()):
-            if np.isscalar(v):
+        for σcls, v in self._data.items():
+            mult = utils.get_permclass_multiplicity(σcls)
+            if np.ndim(v) == 0:
+                size = utils._get_permclass_size(σcls, self.dim)
                 yield from itertools.repeat(v, size*mult)
             else:
                 for vi in v:
@@ -808,8 +901,9 @@ class PermClsSymmetricTensor(SymmetricTensor):
         of that class. The output thus does not depend on whether values
         are stored as scalars or arrays.
         """
-        for v, size in zip(self._data.values(), self._σclass_sizes.values()):
-            if np.isscalar(v):
+        for σcls, v in self._data.items():
+            if np.ndim(v) == 0:
+                size = utils._get_permclass_size(σcls, self.dim)
                 yield from itertools.repeat(v, size)
             else:
                 yield from v
@@ -822,10 +916,10 @@ class PermClsSymmetricTensor(SymmetricTensor):
 
     def permcls_indep_iter(self, σcls: Union[str, Tuple[int,...]]) -> Generator:
         if isinstance(σcls, str):
-            σcls = self.permclass_label_to_counts(σcls)
+            σcls = utils.permclass_label_to_counts(σcls)
         v = self._data[σcls]
-        if np.isscalar(v):
-            size = self._σclass_sizes[σcls]
+        if np.ndim(v) == 0:
+            size = utils.get_permclass_size(σcls, self.dim)
             yield from itertools.repeat(v, size)
         else:
             yield from v
@@ -836,7 +930,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
     def permcls_indep_iter_repindex(self, σcls: Union[str, Tuple[int]]
                                    ) -> Generator[Tuple[int]]:
         if isinstance(σcls, str):
-            σcls = self.permclass_label_to_counts(σcls_label)
+            σcls = utils.permclass_label_to_counts(σcls)
         return σindex_iter(σcls, self.dim)
 
 
@@ -845,14 +939,13 @@ class PermClsSymmetricTensor(SymmetricTensor):
 #
 
 # %%
-
 @PermClsSymmetricTensor.implements(np.einsum_path)
 def einsum_path(*operands, optimize='greedy', einsum_call=False):
     with utils.make_array_like(PermClsSymmetricTensor(0,0), np.core.einsumfunc):
         return np.core.einsumfunc.einsum_path.__wrapped__(
             *operands, optimize=optimize, einsum_call=einsum_call)
 
-# TODO
+# TODO
 #@PermClsSymmetricTensor.implements(np.einsum)
 #def einsum(*operands, dtype=None, order='K', casting='safe', optimize=False):
 #    # NB: Can't used the implementation in np.core.einsumfunc, because that calls
@@ -864,8 +957,10 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 #
 # These functions replace standard NumPy ones, making them symmetric.
 #
+# **TODO**: Provide implementations of `symmetric_outer` and `symmetric_tensordot` that don’t depend on the inefficient generic implementation in *symalg.py* (which just converts to dense).
+#
 # @SymmetricTensor.implements_ufunc.outer(np.add, np.sub, np.multiply)
-# def symmetric_outer(self, other, ufunc=np.multiply):  # SYMMETRIC ALGEBRA
+# def symmetric_outer(self, other, ufunc=np.multiply):
 #     """
 #     Implement the outer product. Note that the outer product of two symmetric tensors is not symmetric.
 #     The result generated here is the symmetrized version of the outer product.
@@ -888,7 +983,7 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 #         raise TypeError( 'Argument must be SymmetricTensor or list of SymmetricTensors')
 #
 # @PermClsSymmetricTensor.implements(np.tensordot)
-# def symmetric_tensordot(self, other, axes=2):  # SYMMETRIC ALGEBRA
+# def symmetric_tensordot(self, other, axes=2):
 #     """
 #     Like numpy.tensordot, but outputs are all symmetrized.
 #     """
@@ -1022,7 +1117,7 @@ if __name__ == "__main__":
             sym = sys.getsizeof(A)
             sym += sum(sys.getsizeof(k) + sys.getsizeof(v) for k,v in A.__dict__.items())
             sym += sum(sys.getsizeof(k) for k in A._data)
-            sym += sum(A.get_permclass_size(σcls)*8 + 104 for σcls in A.perm_classes)
+            sym += sum(utils.get_permclass_size(σcls, A.dim)*8 + 104 for σcls in A.perm_classes)
             # Append data point
             points.append((dim, sym/dense))
         curves.append(hv.Curve(points, kdims=['dimensions'], vdims=['size (rel. to dense)'],
@@ -1046,6 +1141,7 @@ if __name__ == "__main__":
     import pytest
     from collections import Counter
     from mackelab_toolbox.utils import TimeThis
+    import symtensor as st
     from symtensor.utils import symmetrize
     from symtensor.testing.utils import does_not_warn
 
@@ -1053,7 +1149,27 @@ if __name__ == "__main__":
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
             yield SymmetricTensor(rank=r, dim=d)
     assert SymmetricTensor(rank=4, dim=3).perm_classes == \
-        ['iiii', 'iiij', 'iijj', 'iijk', 'ijkl']
+        ('iiii', 'iiij', 'iijj', 'iijk', 'ijkl')
+
+# %% [markdown]
+# ### Instantiation
+#
+# **TODO**: Instantiate with a mapping without specifying `rank` and `dim`
+
+    # %%
+    # Instantiation with a scalar
+    a = 3.14
+    A = SymmetricTensor(3, 4, a)
+    assert all(np.all(σarr == a) for σarr in A._data.values())
+    # Instantiation with a dense array
+    Adense = utils.symmetrize(np.arange(3**4).reshape(3,3,3,3))
+    Asym = SymmetricTensor(Adense)
+    assert np.all(Asym.todense() == Adense)
+    # Instantiation with a mapping
+    Asym2 = SymmetricTensor(Asym.rank, Asym.dim, Asym._data)
+    assert Asym2._data.keys() == Asym._data.keys() == set(utils._perm_classes(Asym.rank))
+    assert all(np.all(Asym2._data[σcls] == Asym._data[σcls])
+               for σcls in utils._perm_classes(Asym.rank))
 
 # %% [markdown]
 # ### Combinatorics
@@ -1067,7 +1183,7 @@ if __name__ == "__main__":
     for A in test_tensors():
         r = A.rank
         d = A.dim
-        assert (sum(A.get_permclass_size(σcls) for σcls in A.perm_classes)
+        assert (sum(utils.get_permclass_size(σcls, A.dim) for σcls in A.perm_classes)
                 == math.prod(range(d, d+r)) / math.factorial(r))
 
 # %% [markdown]
@@ -1079,7 +1195,7 @@ if __name__ == "__main__":
     for A in test_tensors():
         r = A.rank
         d = A.dim
-        assert (sum(A.get_permclass_size(σcls) * A.get_permclass_multiplicity(σcls)
+        assert (sum(utils.get_permclass_size(σcls, A.dim) * utils.get_permclass_multiplicity(σcls)
                     for σcls in A.perm_classes)
                 == d**r)
 
@@ -1106,15 +1222,15 @@ if __name__ == "__main__":
 
     # %%
     for A in test_tensors():
-        assert all(len(list(A.indep_iter_index(σcls))) == len(list(A.indep_iter(σcls)))
+        assert all(len(list(A.permcls_indep_iter_index(σcls))) == len(list(A.permcls_indep_iter(σcls)))
                    for σcls in A.perm_classes)
         assert len(list(A.indep_iter_index())) == len(list(A.indep_iter())) == A.size
         assert len(list(A.flat)) == len(list(A.flat_index)) == A.dim**A.rank
         # permcls_indep_iter_repindex returns a unique index tuple
-        I = next(A.permcls_indep_iter_repindex())
+        I = next(A.indep_iter_repindex())
         assert isinstance(I, tuple) and all(isinstance(i, int) for i in I)
         # permcls_indep_iter_repindex returns a unique index I for each index class
-        len({str(Counter(sorted(idx))) for idx in A.permcls_indep_iter_repindex()}) == A.size
+        len({str(Counter(sorted(idx))) for idx in A.indep_iter_repindex()}) == A.size
 
 # %% [markdown]
 # ### Indexing
@@ -1122,10 +1238,10 @@ if __name__ == "__main__":
 # Test permutation standardization (computation of class representatives).
 
     # %%
-    assert _get_index_representative((2,1,2))         == (2,2,1)
-    assert _get_index_representative((1,1,2))         == (1,1,2)
-    assert _get_index_representative((0,0))           == (0,0)
-    assert _get_index_representative((5,4,3,3,2,1))   == (3,3,1,2,4,5)
+    assert get_index_representative((2,1,2))         == (2,2,1)
+    assert get_index_representative((1,1,2))         == (1,1,2)
+    assert get_index_representative((0,0))           == (0,0)
+    assert get_index_representative((5,4,3,3,2,1))   == (3,3,1,2,4,5)
 
 # %% [markdown]
 # Test indexing.
@@ -1135,7 +1251,7 @@ if __name__ == "__main__":
     assert A['iij'] is A._data[(2,1)]
 
     b = 0
-    sizes = [A.get_permclass_size(σcls) for σcls in A.perm_classes]
+    sizes = [utils.get_permclass_size(σcls, A.dim) for σcls in A.perm_classes]
     for σcls, size in zip(A.perm_classes, sizes):
         if σcls == "iii":
             # Test indexing with both scalar and list entries
@@ -1160,7 +1276,7 @@ if __name__ == "main":
     #subtensor generation with multiple indices
     dim = 4
     rank = 4
-    #test is_equal
+    #test array_equal
     diagonal = np.random.rand(dim)
     odiag1 = np.random.rand()
     odiag2 = np.random.rand()
@@ -1170,8 +1286,8 @@ if __name__ == "main":
     A['iijj'] = odiag2
 
     assert (A[0,1,:,:].todense() == A.todense()[0,1,::]).any()
-    assert (A[0,1,:,:]).is_equal(A[1,0,:,:])
-    assert (A[0,1,1,:]).is_equal(A[1,1,0,:])
+    assert np.array_equal(A[0,1,:,:], A[1,0,:,:])
+    assert np.array_equal(A[0,1,1,:], A[1,1,0,:])
     assert all([A[0,0,0,:][i] == A[0,0,0,i] for i in range(dim)])
 
 
@@ -1182,29 +1298,6 @@ if __name__ == "main":
     Ad = A.todense()
     Bd = B.todense()
     assert (np.multiply.outer(A,B).todense() == np.multiply.outer(Ad,Bd)).any()
-
-    # %%
-    # Rank 3
-    assert SymmetricTensor.is_subσcls('iii', 'ii')
-    assert SymmetricTensor.is_subσcls('iij', 'ij')
-    assert SymmetricTensor.is_subσcls('ijk', 'ij')
-    assert not SymmetricTensor.is_subσcls('iii', 'ij')
-    assert not SymmetricTensor.is_subσcls('ijk', 'ii')
-    # Rank 4
-    assert SymmetricTensor.is_subσcls('iiii', 'iii')
-    assert SymmetricTensor.is_subσcls('iiii', 'ii')
-    assert SymmetricTensor.is_subσcls('iijj', 'ij')
-    assert SymmetricTensor.is_subσcls('iijj', 'iij')
-    assert SymmetricTensor.is_subσcls('iijk', 'iij')
-    assert SymmetricTensor.is_subσcls('iijk', 'ijk')
-    assert SymmetricTensor.is_subσcls('iijk', 'ij')
-    assert SymmetricTensor.is_subσcls('iijk', 'i')
-    assert not SymmetricTensor.is_subσcls('iiii', 'ij')
-    assert not SymmetricTensor.is_subσcls('iiii', 'ijk')
-    assert not SymmetricTensor.is_subσcls('iijj', 'ijk')
-    assert not SymmetricTensor.is_subσcls('iijk', 'ijkl')
-    assert not SymmetricTensor.is_subσcls('iijk', 'iijj')
-    assert not SymmetricTensor.is_subσcls('iijj', 'iii')
 
 # %% [markdown]
 # ### Assignement
@@ -1236,7 +1329,7 @@ if __name__ == "main":
 if __name__ == "__main__":
     rank = 4
     dim = 50
-    #test is_equal
+    #test all_equal
     diagonal = np.random.rand(dim)
     odiag1 = np.random.rand()
     odiag2 = np.random.rand()
@@ -1248,11 +1341,11 @@ if __name__ == "__main__":
     B['iiij'] = odiag1
     A['iijj'] = odiag2
     B['iijj'] = odiag2
-    assert A.is_equal(B)
+    assert np.array_equal(A, B)
 
     #test copying
     C = A.copy()
-    assert C.is_equal(A)
+    assert np.array_equal(C, A)
 
 # %% [markdown]
 # ### Serialization
@@ -1347,15 +1440,15 @@ if __name__ == "__main__":
                 test_tensor_3[σcls] = 1.0
     test_tensor_4 =  test_tensor_2 - test_tensor_3
     print(test_tensor_1, test_tensor_4)
-    assert test_tensor_4.is_equal(test_tensor_1, prec =1e-10)
+    assert np.allclose(test_tensor_4, test_tensor_1)
     test_tensor_5 = np.multiply(test_tensor_2, -1)
     test_tensor_6 = np.multiply(test_tensor_5, -1)
     #test multiplication
-    assert test_tensor_6.is_equal(test_tensor_2, prec =1e-10)
+    assert np.allclose(test_tensor_6, test_tensor_2)
     test_tensor_7 = np.exp(test_tensor_2)
     test_tensor_8 = np.log(test_tensor_7)
     #test log, exp
-    assert test_tensor_8.is_equal(test_tensor_2, prec =1e-10)
+    assert np.allclose(test_tensor_8, test_tensor_2)
 
 # %% [markdown]
 # ### Tensordot
@@ -1368,68 +1461,71 @@ if __name__ == "__main__":
     test_tensor_1d = test_tensor_1.todense()
     test_tensor_2d = test_tensor_2.todense()
     test_tensor_3d = test_tensor_3.todense()
-    prec =1e-10
     test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).all()
+    assert np.allclose(test_tensor_8.todense(),
+                       symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))
     test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
-    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
+    assert np.allclose(test_tensor_9.todense(),
+                       symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))
 
     test_tensor_10 = SymmetricTensor(rank=1, dim=2)
     test_tensor_10['i'] = [1,0]
     test_tensor_11 = SymmetricTensor(rank=1, dim=2)
     test_tensor_11['i'] = [0,1]
     test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
-    assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
+    assert test_tensor_12[0,0] == 0 and test_tensor_12[1,1] == 0
     assert test_tensor_12['ij'] == 0.5
 
 
 
     # %% tags=[]
     #outer product with tensordot
-    def test_tensordot(tensor_1, tensor_2, prec =1e-10):
-        test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
-        assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
+    def test_tensordot(tensor_1, tensor_2, rtol=1e-5):
+        test_tensor_13 = np.tensordot(tensor_1, tensor_2, axes=0)
+        assert np.allclose(test_tensor_13, np.multiply.outer(tensor_1,tensor_2), rtol=rtol)
 
         #Contract over first and last indices:
-        test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
+        test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
         dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =1 ))
-        assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
-        test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
-        assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
+        assert np.allclose(test_tensor_14.todense(), dense_tensor_14, rtol=rtol)
+        test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes =(0,1))
+        assert np.allclose(test_tensor_14, test_tensor_141, rtol=rtol)
 
         #Contract over two first and last indices:
-        test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
+        test_tensor_15 =  np.tensordot(tensor_1, tensor_2, axes =2)
         dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
                                                   tensor_2.todense(),
                                                   axes =2 ))
         if isinstance(test_tensor_15, SymmetricTensor):
-            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
+            assert np.allclose(test_tensor_15.todense(), dense_tensor_15, rtol=rtol)
         else:
             assert test_tensor_15 == dense_tensor_15
 
-        if tensor_1.rank >2 and tensor_2.rank >2:
-            test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
+        if tensor_1.rank > 2 and tensor_2.rank > 2:
+            test_tensor_16 =  np.tensordot(tensor_1, tensor_2, axes =((0,1,2),(0,1,2)))
             dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(0,1,2)) ))
+                                                      tensor_2.todense(),
+                                                      axes =((0,1,2),(0,1,2)) ))
             dense_tensor_161 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,1,0)) ))
+                                                      tensor_2.todense(),
+                                                      axes =((0,1,2),(2,1,0)) ))
             dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,0,1)) ))
-            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
+                                                      tensor_2.todense(),
+                                                      axes =((0,1,2),(2,0,1)) ))
+            assert np.allclose(test_tensor_16.todense(), dense_tensor_16, rtol=rtol)
+            assert np.allclose(test_tensor_16.todense(), dense_tensor_161, rtol=rtol)
+            assert np.allclose(test_tensor_16.todense(), dense_tensor_162, rtol=rtol)
 
-    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-            if A.rank +B.rank <= 8: #otherwise we can't convert to dense
-                test_tensordot(A,B)
-
-
+    for A in itertools.islice(test_tensors(), 0, 3, 2):
+        for B in itertools.islice(test_tensors(), 1, 4, 2):
+            if A.dense_size * B.dense_size <= 128:  # Avoid really costly conversions to dense – not necessary for the test (* because test involves an outer product)
+                test_tensordot(A, B)
+    # for A in [test_tensor_1, test_tensor_, test_tensor_5, test_tensor_6, test_tensor_7]:
+    #     for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
+    #         if A.rank + B.rank <= 8: #otherwise we can't convert to dense
+    #             test_tensordot(A,B)
 
 # %% [markdown]
 # ### Contraction with matrix along all indices
@@ -1450,9 +1546,12 @@ if __name__ == "__main__":
     W = np.random.rand(3,3)
     W1 = np.random.rand(3,3)
     W2 = np.random.rand(3,3)
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W2).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).all()
+    assert np.allclose(st.contract_all_indices_with_matrix(A, W).todense(),
+                       symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W)))
+    assert np.allclose(st.contract_all_indices_with_matrix(A, W1).todense(),
+                       symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1)))
+    assert np.allclose(st.contract_all_indices_with_matrix(A, W2).todense(),
+                       symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2)))
 
     B = SymmetricTensor(rank = 4, dim =4)
     B['iiii'] = np.random.rand(4)
@@ -1460,12 +1559,15 @@ if __name__ == "__main__":
     B['iijj'] = np.random.rand(6)
     B['ijkk'] =-0.5
     W = np.random.rand(4,4)
-    C = B.contract_all_indices_with_matrix(W)
+    C = st.contract_all_indices_with_matrix(B, W)
     W1 = np.random.rand(4,4)
     W2 = np.random.rand(4,4)
-    assert np.isclose(C.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
-    assert np.isclose(C.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
-    assert np.isclose(C.contract_all_indices_with_matrix(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
+    assert np.allclose(st.contract_all_indices_with_matrix(C, W).todense(),
+                       symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W)))
+    assert np.allclose(st.contract_all_indices_with_matrix(C, W1).todense(),
+                       symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1)))
+    assert np.allclose(st.contract_all_indices_with_matrix(C, W2).todense(),
+                       symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2)))
 
 
 # %% [markdown]
@@ -1492,11 +1594,13 @@ if __name__=="__main__":
             tensor_list += [random_tensor]
             chi_dense[i,:,:] = random_tensor.todense()
 
-        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1, rule ='all')
-        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2, rule ='all')
+        contract_1 = st.contract_tensor_list(test_tensor, tensor_list, n_times =1, rule ='all')
+        contract_2 = st.contract_tensor_list(test_tensor, tensor_list, n_times =2, rule ='all')
 
-        assert  np.isclose(contract_1.todense(), symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))).all()
-        assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
+        assert  np.allclose(contract_1.todense(),
+                            symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense)))
+        assert  np.allclose(contract_2.todense(),
+                            symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense)))
 
 # %% [markdown]
 # ### Contraction with vector
@@ -1504,8 +1608,8 @@ if __name__=="__main__":
 # %%
 if __name__ == "__main__":
     A = SymmetricTensor(rank = 3, dim=3)
-    A[0,0,0] =1
-    A[0,0,1] =-12
+    A[0,0,0] = 1
+    A[0,0,1] = -12
     A[0,1,2] = 0.5
     A[2,2,2] = 1.0
     A[0,2,2] = -30
@@ -1513,14 +1617,16 @@ if __name__ == "__main__":
     x = np.random.rand(3)
     x1 = np.random.rand(3)
     x2 = np.zeros(3)
-    assert np.isclose(A.contract_all_indices_with_vector(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
-    assert np.isclose(A.contract_all_indices_with_vector(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
+    assert np.isclose(st.contract_all_indices_with_vector(A, x),
+                      np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
+    assert np.isclose(st.contract_all_indices_with_vector(A, x1),
+                      np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
     #assert np.isclose(A.contract_all_indices_with_vector(x2), 0)
 
 
 # %%
 if __name__ == "__main__":
-    print(A.contract_all_indices_with_vector(x2))
+    print(st.contract_all_indices_with_vector(A, x2))
 
 # %% [markdown]
 # ## Timings
@@ -1532,7 +1638,7 @@ if __name__ == "__main__":
 # %%
 if __name__=="__main__":
     TimeThis.on= True
-    with TimeThis("check slicing speed"):
+    with TimeThis("check slicing speed", lambda name, Δ: None):
         D = A[0]
 
 
@@ -1547,11 +1653,12 @@ if __name__=="__main__":
             vect['i'] = np.random.rand(dim)
             print('rank = ', rank)
             print('dim = ', dim)
-            with TimeThis('pos_dict_creation'):
+            with TimeThis('pos_dict_creation', output_last_Δ=lambda name, Δ: None):
                 x = pos_dict[rank,dim]
-            with TimeThis('outer product'):
+            with TimeThis('outer product', output_last_Δ=lambda name, Δ: None):
                 # vect x vect x vect ... x vect
-                A = vect.outer_product([vect,]*(rank-1))
+                A = np.multiply.outer([vect,vect], [vect,vect])
+                # Old: vect.outer_product([vect,]*(rank-1))
 
 # %% [markdown]
 # ### Contractions
@@ -1567,11 +1674,13 @@ if __name__=="__main__":
     A[1,2,2] = 0.1
 
     W = np.random.rand(3,3)
-    with TimeThis('permcls_indep_iter_repindex'):
+    with TimeThis('permcls_indep_iter_repindex', output_last_Δ=lambda name, Δ:None):
         li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
     W1 = np.random.rand(3,3)
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
+    assert np.allclose(st.contract_all_indices_with_matrix(A, W).todense(),
+                       symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W)))
+    assert np.allclose(st.contract_all_indices_with_matrix(A, W1).todense(),
+                       symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1)))
 
 # %% [markdown]
 # ## WIP

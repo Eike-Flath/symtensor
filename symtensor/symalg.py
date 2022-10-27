@@ -36,14 +36,22 @@ import numpy as np
 from typing import Union, Type
 from scityping import Real
 
+# %%
+import logging
+logger = logging.getLogger(__name__)
+
 # %% tags=["active-ipynb"]
-# # Notebook only imports
+# Notebook only imports
+
+# %% tags=["active-ipynb"]
 # from symtensor.base import SymmetricTensor, result_array, array_function_dispatch
 # from symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
 # from symtensor import utils
 
-# %% tags=["active-py"]
+# %% [markdown] tags=[]
 # Script only imports
+
+# %% tags=["active-py"]
 from .base import SymmetricTensor, result_array, array_function_dispatch
 from .dense_symtensor import DenseSymmetricTensor
 from . import utils

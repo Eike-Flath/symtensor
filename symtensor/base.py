@@ -46,12 +46,16 @@ from scityping.numpy import Array, DType
 from scityping.pydantic import dataclass
 
 # %% tags=["active-ipynb"]
-# # Notebook only imports
-# #from symtensor import utils #CM:Does not work for me.... 
-# import utils as utils
+# Notebook only imports
+
+# %% tags=["active-ipynb"]
+# from symtensor import utils #CM:Does not work for me.... # AR: I think this is fixed now for you
+# #import utils as utils  # AR: This will break as soon as you execute from another directory (e.g. the gmm folder)
+
+# %% [markdown] tags=[]
+# Script only imports
 
 # %% tags=["active-py"]
-# Script only imports
 from . import utils
 
 # %%
@@ -214,7 +218,7 @@ logger = logging.getLogger(__name__)
 
 # %% [markdown]
 # :::{hint}
-# A good rule of thumb is the following:
+# A good rule of thumb is the following:
 # - *Concrete subclasses* of `SymmetricTensor` implementing a new *data format* should (re)define *abstract* methods of `SymmetricTensor`;
 # - *Abstract subclasses* of `SymmetricTensor` implementing a new *array backend* should redefine some of the *concrete* methods of `SymmetricTensor`.
 #
@@ -227,6 +231,7 @@ logger = logging.getLogger(__name__)
 # - *data_format*  (class attribute)
 # - *_validate_data*
 # - *_init_data*
+# - *_set_raw_data*
 # - *\_\_getitem\_\_*
 # - *\_\_setitem\_\_*
 # - *size*
@@ -381,6 +386,9 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
            only the latter allow inferring `rank`. To infer `dim`, data must be
            at least 1d.
 
+        .. Note:: As a convenience, if only one positional argument is passed,
+           it is assumed to be `data`.
+
         Raises
         ------
         TypeError:
@@ -390,6 +398,15 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
           - If `data` format is unexpected.
           - If `rank` or `dim` don’t match `data`.
         """
+        if rank is not None and not isinstance(rank, int):
+            if dim is None and (data == 0. or data is None):
+                # The `dim` and `data` arguments are their defaults => Assume abbreviated, data-only signature was used
+                data = rank
+                rank = None
+            else:
+                raise TypeError(f"`rank` must be an integer (or None); received {rank}")
+        if dim is not None and not isinstance(dim, int):
+            raise TypeError(f"`dim` must be an integer (or None); received {dim}")
         self.rank = rank
         self.dim = dim
 
@@ -398,7 +415,9 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
             datadtype = None
             datashape = None
         elif np.isscalar(data):  # True only for true scalars, but not 0d arrays
-            data, datadtype, _ = self._validate_data(data)
+            if rank is None or dim is None:
+                raise TypeError("`rank` and `dim` are required arguments when initializing a SymmetricTensor with scalar data.")
+            data, datadtype, _ = self._validate_data(data, symmetrize)
             if dtype is None: dtype     = datadtype  # self._dtype is set below
         else:
             if isinstance(data, dict):
@@ -469,6 +488,8 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                             "and it was not possible to infer it from `data`.")
         if self.rank is None: missing_error(rank, "rank")
         if self.dim is None: missing_error(dim, "dim")
+        assert isinstance(self.rank, int), "Rank must be an integer."
+        assert isinstance(self.dim, int), "Dimension must be an integer."
 
         # Set σ-classes
         self.perm_classes = tuple(utils.permclass_counts_to_label(counts)
@@ -499,13 +520,13 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                             f"support arguments of type {type(array)}.")            
         elif not any((np.issubdtype(array.dtype, np.number),
                      np.issubdtype(array.dtype, bool))):
-            raise TypeError(f"Data type is neither numeric nor bool: {arra.dtype}.")
+            raise TypeError(f"Data type is neither numeric nor bool: {array.dtype}.")
         
         return array
 
     # _validate_data mostly depends on the data format – overridden in concrete subclasses
     @abstractmethod
-    def _validate_data(cls, data: Union[dict, "array-like"]) -> Tuple[Any, DType, Tuple[int,...]]:
+    def _validate_data(self, data: Union[dict, "array-like"]) -> Tuple[Any, DType, Tuple[int,...]]:
         # DEVNOTE: In subclasses, replace 'Any' by the type(s) actually returned
         """
         Do five things:
@@ -558,24 +579,38 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         #   self.dim and self._dtype are available, and that data is not None
         raise NotImplementedError
 
+    @abstractmethod
+    def _set_raw_data(self, key, arr):
+        """
+        Directly set one of the objects of the underlying data storage.
+        Must for specialized operations, like optimized versions of tensor
+        contractions, which can benefit from operating directly on raw arrays.
+        {Keys, arr} pairs are the same as would be returned by `.items()`.
+        E.g. for PermClsSymmetricTensor, this is roughly equivalent to
+        ``self._data[key][:] = arr``, with guards for when a perm class is
+        representated as a scalar.
+
+        .. Important:: Because this is intended for optimized operations, no
+           validation is made on `arr` (e.g. whether the shape or type are correct).
+           Some assignments may be checked, depending on both the underlying
+           format and the type of `arr`.
+        """
+        raise NotImplementedError
+
     #### Serialization ####
     @dataclass
     class Data:
         rank: int
         dim: int
-        # NB: JSON keys must be str, int, float, bool or None, but not tuple => convert to str
-        data: Dict[str, Array]
+        # Subclasses must define the data type
+        #data: Dict[Union[str,int,float,bool], Array]
         
         @staticmethod
+        @abstractmethod
         def encode(symtensor: SymmetricTensor): 
-            return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
-        @staticmethod
-        def decode(data: "SymmetricTensor.Data"):
-            # Invert the conversion tuple -> str that was done in `encode`
-            data_dict = {tuple(int(key_str) for key_str in re.findall(r"\d+", s)): arr
-                         for key_str, arr in data.data.items}
-            # Instantiate the expected tensor
-            return SymmetricTensor(rank, dim, data_dict)
+            raise NotImplementedError
+            # An implementation would look something like this, but typically needs to sanitize `data`
+            #return (symtensor.rank, symtensor.dim, symtensor.data)
 
     #### Subclassing magic ####
 
@@ -629,11 +664,14 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
     def __repr__(self):
         s = f"{type(self).__qualname__}(rank: {self.rank}, dim: {self.dim}, data: "
         d = str(getattr(self, '_data', None))
-        data_s = chain.from_iterable(line.split("\n") for line in textwrap.wrap(
-            d, replace_whitespace=False, drop_whitespace=False))  # Keep newlines already in the formatted data, so arrays (which already contain well-placed line breaks) appear nicely
-        # d1, d = str(self._data).split("\n", 1)
-        # data_s = f"data: {d1}\n" + textwrap.indent(d, " "*6)
-        data_s = "\n      " + "\n      ".join(data_s)
+        if d:
+            data_s = chain.from_iterable(line.split("\n") for line in textwrap.wrap(
+                d, replace_whitespace=False, drop_whitespace=False))  # Keep newlines already in the formatted data, so arrays (which already contain well-placed line breaks) appear nicely
+            # d1, d = str(self._data).split("\n", 1)
+            # data_s = f"data: {d1}\n" + textwrap.indent(d, " "*6)
+            data_s = "\n      " + "\n      ".join(data_s)
+        else:
+            data_s = ""
         return f"{s}{data_s})"
 
     @abstractmethod
@@ -1246,7 +1284,11 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                 for (keyA, dataA), (keyB, dataB), (keyO, dataO) \
                       in zip(A.items(), B.items(), out.items()):
                     assert keyA == keyB == keyO, "Tensors have different memory layouts, but we took a code branch where this should not be the case."
-                    f(dataA, dataB, out=dataO, **kwargs)
+                    if np.ndim(dataO) == 0:
+                        # Cannot modify in-place
+                        out._set_raw_data(keyO, f(dataA, dataB, **kwargs)) 
+                    else:
+                        f(dataA, dataB, out=dataO, **kwargs)
 
             else:
                 # Possibly non-matching memory layouts: revert to σcls iteration
@@ -1528,7 +1570,10 @@ def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
 
 # %%
 def _array_compare(comp, a, b) -> bool:
-    "`comp` should be like np.array_equal or allclose: returns a single bool."
+    """
+    `comp` should be like np.array_equal or allclose: returns a single bool.
+    IMPORTANT: `comp` must be reflexive: we must have ``comp(a, b) == comp(b, a)``.
+    """
     if not isinstance(a, SymmetricTensor):
         if not isinstance(b, SymmetricTensor):
             # Case: neither a nor b is SymmetricTensor – shouldn't happen
