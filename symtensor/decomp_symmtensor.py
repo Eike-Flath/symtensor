@@ -50,10 +50,11 @@ from scityping import Number
 from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
+
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
-# from symtensor.symtensor.torch_symtensor import TorchSymmetricTensor
-# from symtensor.symtensor.permcls_symtensor import PermClsSymmetricTensor
+# from symtensor.torch_symtensor import TorchSymmetricTensor
+# from symtensor.permcls_symtensor import PermClsSymmetricTensor
 
 # %% tags=["active-py", "remove-cell"]
 Script only imports
@@ -264,7 +265,44 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         .. Note:: Cannot set individual entries of a 
         DecompSymmetricTensor.
         """
-        raise NotImplementedError
+        raise NotImplementedError("It is not possible to set individual"+ \
+                                 "entries of DecompSymmtetricTensor.")
+        
+    ## data properties ##
+    @property
+    def dtype(self) -> np.dtype: 
+        return self._dtype
+
+    @property
+    def shape(self) -> Tuple[int,...]: 
+        return self.rank*(self.dim,)
+
+    @property
+    def size(self) -> int: 
+        return self.num_components*(self.dim+1)
+    
+    ### Algebra ###
+    
+    def __add__(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
+        
+        #check if compatible
+        if not isinstance(other, DecompSymmetricTensor): 
+            raise TypeError("can only add DecompSymmetricTensor to DecompSymmetricTensor")
+        if not self.rank == other.rank: 
+            raise ValueError("Tensor rank must match.")
+        if not self.dim == other.dim: 
+            raise ValueError("Tensor dimension must match.")
+        if not self.multiplicities == other.multiplicities:
+            raise ValueError("Component multiplicities must match.")
+        
+        out = DecompSymmetricTensor(rank = self.rank, dim = self.dim)
+        if len(self.multiplicities)==1:
+            out.weights =  torch.cat((self.weights, other.weights), 0) 
+            out.components = torch.cat((self.components , other.components ), 0) 
+            out.multiplicities = self.multiplicities
+            return out
+        else: 
+            raise NotImplementedError
 
 # %% [markdown]
 # # Tests
@@ -293,7 +331,7 @@ if __name__ == "__main__":
     import pytest
     from collections import Counter
     from statGLOW.utils import does_not_warn
-    from symtensor.symtensor.utils import symmetrize
+    from symtensor.utils import symmetrize
     import itertools
 
     def test_tensors() -> Generator:
@@ -355,6 +393,43 @@ if __name__ == "__main__":
     assert np.isclose(B_3[2,0,2], B_3[0,2,2])
     assert np.isclose(B_3[0,1,2], B_3.weights[0]*B_3.components[0,0]*B_3.components[0,1]*B_3.components[0,2] 
                                   + B_3.weights[1]*B_3.components[1,0]*B_3.components[1,1]*B_3.components[1,2])
+
+# %% [markdown]
+# ## Shape, size, dtype
+
+    # %%
+    d = 2
+    r = 3
+    A = two_comp_test_tensor(d,r)
+    assert A.shape == (2,2,2)
+    assert A.size == 6
+    assert A.dtype == torch.float64
+    
+    
+    d = 20
+    r = 3
+    A = two_comp_test_tensor(d,r)
+    assert A.shape == (20,20,20)
+    assert A.size == 42
+    assert A.dtype == torch.float64
+    
+    
+    d = 20
+    r = 10
+    A = two_comp_test_tensor(d,r)
+    assert A.shape == (20,)*10
+    assert A.size == 20*2+2
+    assert A.dtype == torch.float64
+
+    # %%
+    d = 2
+    r = 3
+    A = two_comp_test_tensor(d,r)
+    B = two_comp_test_tensor(d,r)
+    
+    C = A+B
+    assert all(np.isclose(C[index], A[index]+B[index]) for index in  C.indep_iter_repindex())
+
 
 # %% [markdown]
 # ## More tests, unfinished
