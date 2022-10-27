@@ -53,17 +53,19 @@ from scityping.torch import TorchTensor
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
 # from symtensor.symtensor.torch_symtensor import TorchSymmetricTensor
+# from symtensor.symtensor.permcls_symtensor import PermClsSymmetricTensor
 
 # %% tags=["active-py", "remove-cell"]
-Script only imports
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from .torch_symtensor import TorchSymmetricTensor
+from .permcls_symtensor import PermClsSymmetricTensor
 from . import base
 from . import utils
 
 
 # %%
-class DecompSymmetricTensor(TorchSymmetricTensor):
+class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     """
     Abstract `DecompTensor` using outer products to express 
     symmetric tensors.
@@ -72,12 +74,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
     # Overridden class attributes
     array_type  : ClassVar[type]=torch.tensor
     # New attributes
-    _device_name: str
+    _device_name : str
+    # for some reason, needs this
+    _data : Dict[Tuple[int], Union[float, Array[float,1]]]
     
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Union[Array, Number]=np.float64(0),
                  dtype: Union[str,DType]=None,
-                 symmetrize: bool=False,
                  device: Union[str, 'torch.device']="cpu"):
         """
         {{base_docstring}}
@@ -90,7 +93,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
            PyTorch device objects are also supported.
 
         """
-        super().__init__(rank, dim, data, dtype, symmetrize)
+        super().__init__(rank = rank, dim = dim , data = data, dtype =dtype)
         # Sets rank, dim, device, _σclass_sizes, _σclass_multiplicities
         # Calls _validate_data
         # Sets _dtype
@@ -156,8 +159,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
             assert len(self.multiplicities) == len(self.weights.shape), "multiplicities do not match weights."
             data_shape = sum(self.multiplicities)*(self.components.shape[1],)
                                      
-            
-
+        elif isinstance(data,float): 
+            data_shape = None #have no information on data
+            datadtype = None
+        elif data is None: 
+            data_shape = None #have no information on data
+            datadtype = None
         else:
             raise TypeError("If provided, `data` must be a dictionary with "
                             "the format {weights: Array, "
@@ -166,7 +173,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
 
         return data, datadtype, data_shape
     
-    def _init_data(self, data:  Dict[Tuple[int,...]]):
+    def _init_data(self, data:  Dict[Tuple[int,...]], symmetrize: bool = False):
         self._data = data
     
     ## Dunder methods ##
@@ -190,37 +197,25 @@ class DecompSymmetricTensor(TorchSymmetricTensor):
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
                 raise NotImplementedError
             else:
-                σcls = utils._get_permclass(key)
-                vals = self._data[σcls]
-                if np.ndim(vals) == 0:
-                    return vals
-                else:
-                    σcls, pos = _convert_dense_index(self.rank, self.dim, key)
-                    return vals[pos]
-        elif self.rank==1 and isinstance(key,int): #special rules for vectors
-            vals = self._data[(1,)]
-            return vals if np.isscalar(vals) else vals[key]
-        elif self.rank >1 and isinstance(key, int):
-            if self.dim ==1:
-                σcls, pos = self._convert_dense_index(self.rank, self.dim, key)
-                vals = self._data[σcls]
-                return vals if np.isscalar(vals) else vals[pos]
-            elif self.dim >1:
-                B = PermClsSymmetricTensor(rank = self.rank-1, dim = self.dim)
-                for idx in B.permcls_indep_iter_repindex():
-                    B[idx] = self[idx+(key,)]
-
-                return B
+                raise NotImplementedError
         else:
             raise KeyError(f"{key}")
+            
+    def __setitem__(self, key):
+        """
+        {{base_docstring}}
+
+        .. Note:: Cannot set individual entries of a 
+        DecompSymmetricTensor.
+        """
+        raise NotImplementedError
+        
 
 
-
-# %%
-if __name__ == "__main__":
-    DecompSymmetricTensor  # This makes it easier to write reusable tests for different SymmetricTensor formats
 
 # %%
 if __name__ == "__main__":
     # instantiation
     A = DecompSymmetricTensor(rank = 1, dim =10) 
+    assert A.rank == 1
+    assert A.dim ==10

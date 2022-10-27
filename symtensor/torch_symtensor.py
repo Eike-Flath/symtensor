@@ -36,7 +36,7 @@ from scityping.torch import TorchTensor
 # from symtensor.symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-#Script only imports
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -118,7 +118,6 @@ class TorchSymmetricTensor(SymmetricTensor):
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Union[Array, Number]=np.float64(0),
                  dtype: Union[str,DType]=None,
-                 symmetrize: bool=False,
                  device: Union[str, 'torch.device']="cpu"):
         """
         {{base_docstring}}
@@ -140,7 +139,7 @@ class TorchSymmetricTensor(SymmetricTensor):
         # Convert possibly NumPy dtype to PyTorch
                              
         # Let super class do the initialization
-        super().__init__(rank, dim, data, dtype, symmetrize)
+        super().__init__(rank = rank, dim = dim , data = data, dtype =dtype)
 
     def _validate_dataarray(self, array: "array-like") -> Array:
         # Cast to array if necessary
