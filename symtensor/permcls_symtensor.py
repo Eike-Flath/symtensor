@@ -22,39 +22,33 @@ from warnings import warn
 from collections import Counter
 import itertools
 import time
-from tqdm.auto import tqdm
-from pydantic import BaseModel
 
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
 
-from mackelab_toolbox.utils import TimeThis
-import statGLOW
-from statGLOW.utils import does_not_warn
-import symtensor.symtensor.utils as utils
+from symtensor import utils
 
 from typing import Union, ClassVar, Any, Iterator, Generator, Dict, List, Tuple, Set
 from scityping import Serializable
 from scityping.numpy import Array, DType
 
-# %% tags=["hide-input", "active-ipynb"]
-# # Notebook only imports
-# import holoviews as hv
-# hv.extension('bokeh')
+# %% [markdown] tags=[]
+# **TODO** Include `TimeThis` (or equivalent) in symtensor.testing.utils
 
 # %% tags=["active-ipynb", "remove-input"]
-# # Module only imports
+# # Notebook only imports
 # from symtensor.symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
 # from symtensor.symtensor import base
 # from symtensor.symtensor import utils
+#
+# import holoviews as hv
+# hv.extension('bokeh')
 
 # %% tags=["active-py", "remove-cell"]
-#Script only imports
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
-
-# %%
 
 # %%
 __all__ = ["PermSymmetricTensor"]
@@ -757,8 +751,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
     # def shape(self) -> Tuple[int,...]
 
     # @property
-    def size(self) -> int: 
-        return (self.dim,)*self.rank
+    # def size(self) -> int
 
     def todense(self) -> Array:
         A = np.empty(self.shape, self.dtype)
@@ -1052,8 +1045,9 @@ if __name__ == "__main__":
     # %%
     import pytest
     from collections import Counter
+    from mackelab_toolbox.utils import TimeThis
     from statGLOW.utils import does_not_warn
-    from symtensor.symtensor.utils import symmetrize
+    from statGLOW.stats.symtensor.symtensor.utils import symmetrize
 
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
@@ -1264,6 +1258,7 @@ if __name__ == "__main__":
 # ### Serialization
 
     # %%
+    from pydantic import BaseModel
     from statGLOW.smttask_ml import scityping
     class Foo(BaseModel):
         A: SymmetricTensor

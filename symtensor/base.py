@@ -34,19 +34,16 @@ import textwrap
 import inspect
 
 import numpy as np
-import torch
-from pydantic import BaseModel
-from tqdm.auto import tqdm
 
 from numpy.core.overrides import array_function_dispatch as _array_function_dispatch
 
-from mackelab_toolbox.utils import TimeThis, total_size_handler
+from mackelab_toolbox.utils import total_size_handler
 
 from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
                     Dict, List, Tuple, Set)
 from scityping import Number, Serializable
 from scityping.numpy import Array, DType
-from scityping.torch import TorchTensor
+from scityping.pydantic import dataclass
 
 # %% tags=["active-ipynb"]
 # # Notebook only imports
@@ -54,7 +51,7 @@ from scityping.torch import TorchTensor
 # import utils as utils
 
 # %% tags=["active-py"]
-#Script only imports
+# Script only imports
 from . import utils
 
 # %%
@@ -561,21 +558,24 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         #   self.dim and self._dtype are available, and that data is not None
         raise NotImplementedError
 
-    #### Pydantic serialization ####
-    class Data(BaseModel):
+    #### Serialization ####
+    @dataclass
+    class Data:
         rank: int
         dim: int
         # NB: JSON keys must be str, int, float, bool or None, but not tuple => convert to str
         data: Dict[str, Array]
-        @classmethod
-        def json_encoder(cls, symtensor: SymmetricTensor):
-            return cls(rank=symtensor.rank, dim=symtensor.dim,
-                       data={str(k): v for k,v in symtensor.items()})
         
-        #Todo: Write encode funtion
-        def encode(self,): 
-            #dirty hack
-            pass
+        @staticmethod
+        def encode(symtensor: SymmetricTensor): 
+            return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
+        @staticmethod
+        def decode(data: "SymmetricTensor.Data"):
+            # Invert the conversion tuple -> str that was done in `encode`
+            data_dict = {tuple(int(key_str) for key_str in re.findall(r"\d+", s)): arr
+                         for key_str, arr in data.data.items}
+            # Instantiate the expected tensor
+            return SymmetricTensor(rank, dim, data_dict)
 
     #### Subclassing magic ####
 
