@@ -42,6 +42,20 @@ from scityping.numpy import Array, DType
 # import holoviews as hv
 # hv.extension('bokeh')
 
+# %% tags=["active-ipynb", "remove-input"]
+# # Module only imports
+# from symtensor.symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
+# from symtensor.symtensor import base
+# from symtensor.symtensor import utils
+
+# %% tags=["active-py", "remove-cell"]
+Script only imports
+from .base import SymmetricTensor, array_function_dispatch
+from . import base
+from . import utils
+
+# %%
+
 # %%
 __all__ = ["PermSymmetricTensor"]
 
@@ -183,7 +197,7 @@ __all__ = ["PermSymmetricTensor"]
 
 # %% tags=["hide-output", "active-ipynb"]
 #     # Indented code below is executed only when run in a notebook
-#     from permcls_symmetric_tensor import PermClsSymmetricTensor
+#     from symtensor.symtensor.permcls_symtensor import PermClsSymmetricTensor
 
 # %% [markdown]
 # When created, `SymmetricTensors` default to being all zero. Note that only one scalar value is saved per “permutation class”, making this especially space efficient.
@@ -615,8 +629,8 @@ class PermClsSymmetricTensor(SymmetricTensor):
         return data, datadtype
 
     def _init_data(self, data:  Dict[Tuple[int,...], Array[Any,1]]):
-        self._data = {k: v.astype(self._dtype) if v.dtype != self._dtype
-                      for k, v in data.items()}
+        self._data = {k: v.astype(self._dtype) for k, v in data.items() 
+                      if v.dtype != self._dtype}
 
     ## Dunder methods ##
 
