@@ -49,7 +49,7 @@ from scityping.numpy import Array, DType
 # from symtensor.symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-Script only imports
+#Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -757,7 +757,8 @@ class PermClsSymmetricTensor(SymmetricTensor):
     # def shape(self) -> Tuple[int,...]
 
     # @property
-    # def size(self) -> int
+    def size(self) -> int: 
+        return (self.dim,)*self.rank
 
     def todense(self) -> Array:
         A = np.empty(self.shape, self.dtype)
@@ -1052,7 +1053,7 @@ if __name__ == "__main__":
     import pytest
     from collections import Counter
     from statGLOW.utils import does_not_warn
-    from statGLOW.stats.symtensor.symtensor.utils import symmetrize
+    from symtensor.symtensor.utils import symmetrize
 
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
