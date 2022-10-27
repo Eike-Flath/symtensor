@@ -1,10 +1,14 @@
-### Package migration
+### Package migration & cleaning
 
 - Replace any use of `exenv` by jupytext tags
 - Replace any use of `__main__` by jupytext tags
 - Figure out what `get_idx` does, update docstring and remove statGLOW dep
 - Remove mackelab_toolbox dependencies (include code here if necessary)
+  + TimeThis (testing / profiling only)
+  + total_size_handler
+  + GitSHA
 - Find how to specify dev / testing requirements
+- Remove Pydantic dependency? We could include the type coercion in the `Data.encode` methods (defined in base.py and torch_symtensor.py)
 
 ### CPU to GPU:
 We want to move heavy calculations from CPU to GPU using `pytorch`.

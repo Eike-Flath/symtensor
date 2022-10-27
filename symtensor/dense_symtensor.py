@@ -27,7 +27,6 @@
 
 # %%
 from __future__ import annotations
-import statGLOW.typing
 
 # %% tags=["remove-cell", "active-py"]
 if __name__ != "__main__":
@@ -287,7 +286,7 @@ class DenseSymmetricTensor(SymmetricTensor):
 # %%
 if exenv in {"notebook", "jbook"}:
     from mackelab_toolbox.utils import TimeThis
-    from statGLOW.stats.symtensor import symalg
+    from symtensor import symalg
 
     A = DenseSymmetricTensor(rank = 3, dim=3)
 

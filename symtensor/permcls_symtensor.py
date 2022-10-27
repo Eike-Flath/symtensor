@@ -22,39 +22,33 @@ from warnings import warn
 from collections import Counter
 import itertools
 import time
-from tqdm.auto import tqdm
-from pydantic import BaseModel
 
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 import numpy as np
 
-from mackelab_toolbox.utils import TimeThis
-import statGLOW
-from statGLOW.utils import does_not_warn
-import symtensor.symtensor.utils as utils
+from symtensor import utils
 
 from typing import Union, ClassVar, Any, Iterator, Generator, Dict, List, Tuple, Set
 from scityping import Serializable
 from scityping.numpy import Array, DType
 
-# %% tags=["hide-input", "active-ipynb"]
+# %% [markdown] tags=[]
+# **TODO** Include `TimeThis` (or equivalent) in symtensor.testing.utils
+
+# %% tags=["active-ipynb", "remove-input"]
 # # Notebook only imports
+# from symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
+# from symtensor import base
+# from symtensor import utils
+#
 # import holoviews as hv
 # hv.extension('bokeh')
 
-# %% tags=["active-ipynb", "remove-input"]
-# # Module only imports
-# from symtensor.symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
-# from symtensor.symtensor import base
-# from symtensor.symtensor import utils
-
 # %% tags=["active-py", "remove-cell"]
-#Script only imports
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
-
-# %%
 
 # %%
 __all__ = ["PermSymmetricTensor"]
@@ -197,7 +191,7 @@ __all__ = ["PermSymmetricTensor"]
 
 # %% tags=["hide-output", "active-ipynb"]
 #     # Indented code below is executed only when run in a notebook
-#     from symtensor.symtensor.permcls_symtensor import PermClsSymmetricTensor
+#     from symtensor.permcls_symtensor import PermClsSymmetricTensor
 
 # %% [markdown]
 # When created, `SymmetricTensors` default to being all zero. Note that only one scalar value is saved per “permutation class”, making this especially space efficient.
@@ -757,8 +751,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
     # def shape(self) -> Tuple[int,...]
 
     # @property
-    def size(self) -> int: 
-        return (self.dim,)*self.rank
+    # def size(self) -> int
 
     def todense(self) -> Array:
         A = np.empty(self.shape, self.dtype)
@@ -1052,8 +1045,9 @@ if __name__ == "__main__":
     # %%
     import pytest
     from collections import Counter
-    from statGLOW.utils import does_not_warn
-    from symtensor.symtensor.utils import symmetrize
+    from mackelab_toolbox.utils import TimeThis
+    from symtensor.utils import symmetrize
+    from symtensor.testing.utils import does_not_warn
 
     def test_tensors() -> Generator:
         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
@@ -1264,11 +1258,17 @@ if __name__ == "__main__":
 # ### Serialization
 
     # %%
-    from statGLOW.smttask_ml import scityping
+    A_json = SymmetricTensor.json_encoder(A)
+    A_deserialized = SymmetricTensor.validate(A_json)
+    assert str(A_deserialized) == str(A)
+    assert SymmetricTensor.json_encoder(A_deserialized) == A_json
+
+    # %%
+    from scityping.pydantic import BaseModel
     class Foo(BaseModel):
         A: SymmetricTensor
-        class Config:
-            json_encoders = scityping.json_encoders  # Includes Serializable encoder
+        # class Config:
+        #     json_encoders = scityping.json_encoders  # Includes Serializable encoder
     foo = Foo(A=A)
     foo2 = Foo.parse_raw(foo.json())
     assert foo2.json() == foo.json()
@@ -1292,7 +1292,7 @@ if __name__ == "__main__":
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
 # %% [markdown]
-#     # Context manager works as expected…
+#     # Context manager works as expected…
 #     with utils.make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
 #         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
 #         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
