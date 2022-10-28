@@ -29,40 +29,13 @@
 # $$
 # T = \sum_{m} \lambda^{m,n} \left(\frac{(k+l)!}{l! k!}\right)^{-1}\left[ \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}} + v^n  \otimes \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l-1 \text{ times}} +\dots \right]
 # $$
+#
+# We perform the symmetrization only when we retrieve specific entries of the tensor. 
+#
 # As there are $(k+1)!$ ways of arranging the $k+l$ other products, but permutations of the $k$ identical vectors $u^m$ or the $l$ identical vectors $v^n$ do not yield new terms. 
 # This representation is especially useful for many operations, for example the contraction with a matrix along all indices. 
 #
 # We call $\lambda^m$ the weights and $t^m$ the vectors (strictly speaking, these could be again symmetric tensors) and $k,l$ in the example above the multiplicities.
-
-# %% [markdown]
-# ## Tensordot
-#
-# Suppose we have 
-#
-# $$
-# T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
-# $$
-# with $t^m$ vectors and $T$ has rank $\tau$.
-# and
-# $$
-# U = \sum_{m} \kappa^m u^m \otimes u^m \otimes \dots u^m
-# $$
-# with $u^m$ vectors and $T$ has rank $\nu$.
-#
-# Now we want to contract to 
-# $$
-# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} V_{j,i_{tau},...i_{\tau+\nu-2}} \\
-# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
-# = \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
-# $$
-# with $\nu^{m,n} = \lambda^m \kappa^n \sum_j t^m_j u^n_j$ a matrix.
-# We denote by $M,N$ the number of components in $T,V$.
-# To place everything on a common index, we set
-# $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore: 
-# $$
-# \Lambda^{1:M, M+1:M+N} = \lambda 
-# $$
-# With all other entries of $\Lambda =0$. 
 
 # %% tags=["remove-input"]
 from __future__ import annotations
@@ -135,7 +108,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
 
     @classmethod
     def _validate_data(cls,
-                       data: Optional[Dict[Union[Tuple[int,...], str]]]
+                       data: Optional[Dict[Union[Tuple[int,...], str]]], 
+                       symmetrize: bool = False
                        ) -> Dict[Tuple[int,...], Array[Any,1]]:
         """
         {{base_docstring}}
@@ -145,6 +119,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             {weights: Array, components: Tuple[Array,SymmetricTensors], multiplicities :Tuple}
         - Asserting that all array dtypes are numeric
         - Infer the dtype by applying type promotion on data dtypes
+        - symmetrize is ignored.
         """
         if isinstance(data, np.ndarray):
             raise NotImplementedError("Casting plain arrays to DecompSymmetricTensor "
@@ -275,14 +250,15 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             if self._components is None: 
                 return 0
             elif len(self._multiplicities) == 1: 
+                # do symmetrization step
                 #todo: test this against numpy.prod()
                 return sum( self._weights[i]*torch.prod(torch.tensor([self._components[i,j] for j in key]))
                             for i in range(self.num_components)) 
             elif len(self._multiplicities) == 2:
+                # do symmetrization step
                 indices_1, indices_2, num_partitions = \
                     utils.twoway_partitions(key, self._multiplicities[0],
                                             self._multiplicities[1], num_partitions = True)
-
                 return sum( self._weights[i,j] \
                            *sum(torch.prod(torch.tensor([self._components[i,j_1] for j_1 in index_1]))\
                                 *torch.prod(torch.tensor([self._components[j,j_2] for j_2 in index_2]))\
@@ -322,62 +298,284 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def size(self) -> int: 
         return self.num_components*(self.dim+1)
     
-    ### Algebra ###
     
-    def __add__(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
-        
-        #check if compatible
-        if not isinstance(other, DecompSymmetricTensor): 
-            raise TypeError("can only add DecompSymmetricTensor to DecompSymmetricTensor")
-        if not self.rank == other.rank: 
-            raise ValueError("Tensor rank must match.")
-        if not self.dim == other.dim: 
-            raise ValueError("Tensor dimension must match.")
-        if not self.multiplicities == other.multiplicities:
-            raise ValueError("Component multiplicities must match.")
-        
-        out = DecompSymmetricTensor(rank = self.rank, dim = self.dim)
-        if len(self.multiplicities)==1:
-            out.weights =  torch.cat((self.weights, other.weights), 0) 
-            out.components = torch.cat((self.components , other.components ), 0) 
-            out.multiplicities = self.multiplicities
-            return out
-        if len(self.multiplicities)==2:
-            out.components = torch.cat((self.components , other.components ), 0) 
-            out.multiplicities = self.multiplicities
-            out.weights = torch.zeros(out.num_components,out.num_components)
-            out.weights[:self.num_components,:self.num_components] = self.weights
-            out.weights[self.num_components:,self.num_components:] = other.weights
-            return out
-        else: 
-            raise NotImplementedError
+
+# %% [markdown]
+# ## Tensor addition
+#
+# ### Fully decomposed tensors
+# We want to do 
+# $$
+# T + U = \sum_{m}^M \lambda^m t^m \otimes t^m \otimes \dots t^m + \sum_{m}^N \kappa^m u^m \otimes u^m \otimes \dots u^m
+# $$
+# with $t^m, u^m$ vectors. Let $T$ have $M$ components. Let $U$ have $N$ components. 
+# For this to work, it is necessary, that the multiplicities of both classes are the same which is equivalent to the rank being the same. 
+# We just define
+# $$
+# V = T+U = \sum_{m=1}^{N+M} \nu^m v^m \otimes v^m \otimes \dots v^m
+# $$
+# with 
+# $$
+# v^m = \begin{cases}
+# t^m & m \leq M \\
+# u^m & M+1 \leq m \leq M+N
+# \end{cases}
+# $$
+# and 
+# $$
+# \nu^m = \begin{cases}
+# \lambda^m & m \leq M \\
+# \kappa^m & M+1 \leq m \leq M+N
+# \end{cases}
+# $$
+# And we just initialize a new tensor with weights $\nu$ and components $v$ and the same mutliplicity as before.
+#
+# ### Partially decomposed tensors
+# For tensors of shape 
+# $$
+# T = \sum_{m} \lambda^{m,n} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{s^n \otimes \dots \otimes s^n}_{l \text{ times}}
+# $$
+#
+# $$
+# U = \sum_{m} \kappa^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots \otimes v^n}_{l \text{ times}}
+# $$
+# with $t^m, s^n,u^m, v^m $ vectors. 
+# For this to work, it is necessary, that the multiplicities $(k,l)$ of both tensors are the same which is a stronger condition than the rank being the same. 
+#
+# We just define
+# $$
+# P = T+U = \sum_{m=1}^{N+M} \nu^{m,n} p^m \otimes \dots \otimes p^m \otimes q^m \otimes  \dots \otimes q^m 
+# $$
+# with 
+# $$
+# p^m = \begin{cases}
+# t^m & m \leq M \\
+# u^m & M+1 \leq m \leq M+N
+# \end{cases}
+# $$
+# $$
+# q^m = \begin{cases}
+# s^m & m \leq M \\
+# v^m & M+1 \leq m \leq M+N
+# \end{cases}
+# $$
+# and 
+# $$
+# \nu^{m,n} = \begin{cases}
+# \lambda^{m,n} & m,n \leq M \\
+# \kappa^{m,n} & M+1 \leq m \leq M+N \\
+# 0 & \text{else}
+# \end{cases}
+# $$
+# And we just initialize a new tensor with weights $\nu$ and components $v$ and the same mutliplicities as before. 
+
+# %%
+### Algebra ###
+@DecompSymmetricTensor.implements_ufunc.outer(np.add)
+def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
+    #check if compatible
+    if not isinstance(other, DecompSymmetricTensor): 
+        raise TypeError("can only add DecompSymmetricTensor to DecompSymmetricTensor")
+    if not self.rank == other.rank: 
+        raise ValueError("Tensor rank must match.")
+    if not self.dim == other.dim: 
+        raise ValueError("Tensor dimension must match.")
+    if not self.multiplicities == other.multiplicities:
+        raise ValueError("Component multiplicities must match.")
     
-    def tensordot(self, other): 
-        #check if compatible
-        if not isinstance(other, DecompSymmetricTensor): 
-            raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
-        if not self.dim == other.dim: 
-            raise ValueError("Tensor dimension must match.")
-        if not len(self.multiplicities)==1:
-            raise NotImplementedError
-        if not len(other.multiplicities)==1:
-            raise NotImplementedError
-        if other.multiplicities[0] > self.multiplicities[0]: 
-            return other.tensordot(self)
+    out = DecompSymmetricTensor(rank = self.rank, dim = self.dim)
+    out.components = torch.cat((self.components , other.components ), 0) 
+    out.multiplicities = self.multiplicities
+    #fully decomposed tensor
+    if len(self.multiplicities)==1:
+        out.weights =  torch.cat((self.weights, other.weights), 0) 
+        return out
+    #partially decomposed tensor
+    if len(self.multiplicities)==2:
+        out.weights = torch.zeros(out.num_components,out.num_components)
+        out.weights[:self.num_components,:self.num_components] = self.weights
+        out.weights[self.num_components:,self.num_components:] = other.weights
+        return out
+    else: 
+        raise NotImplementedError
+
+
+# %% [markdown]
+# ## Tensordot
+#
+# ### Outer product 
+# Suppose we have 
+#
+# $$
+# T = \sum_{m} \lambda^m t^m \otimes \dots \otimes t^m
+# $$
+# with $t^m$ vectors and $T$ has rank $\tau$.
+# and
+# $$
+# U = \sum_{m} \kappa^m u^m \otimes \dots \otimes  u^m
+# $$
+# with $u^m$ vectors and $T$ has rank $\nu$.
+#
+# Now we want to compute
+# $$
+# V = T \otimes U \\
+# = \sum_{m,n} \lambda^m \kappa^n t^m \otimes t^m \otimes \dots t^m \otimes u^n \otimes \dots \otimes  u^n
+# $$
+# with $\nu^{m,n} = \lambda^m \kappa^n $ a matrix.
+# We denote by $M,N$ the number of components in $T,V$.
+# To place everything on a common index, we set
+# $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
+# $$
+# \Lambda^{1:M, M+1:M+N} = \nu
+# $$
+# With all other entries of $\Lambda =0$. 
+#
+#
+# ### Single contraction for fully decomposed tensors
+# Suppose we have 
+#
+# $$
+# T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
+# $$
+# with $t^m$ vectors and $T$ has rank $\tau$.
+# and
+# $$
+# U = \sum_{m} \kappa^m u^m \otimes u^m \otimes \dots u^m
+# $$
+# with $u^m$ vectors and $T$ has rank $\nu$.
+#
+# Now we want to contract to 
+# $$
+# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} V_{j,i_{tau},...i_{\tau+\nu-2}} \\
+# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
+# = \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
+# $$
+# with $\nu^{m,n} = \lambda^m \kappa^n \sum_j t^m_j u^n_j$ a matrix.
+# We denote by $M,N$ the number of components in $T,V$.
+# To place everything on a common index, we set
+# $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
+# $$
+# \Lambda^{1:M, M+1:M+N} = \nu
+# $$
+# With all other entries of $\Lambda =0$. 
+#
+# ### Double contraction for fully decomposed tensors
+#
+# As above, but we evaluate
+# Now we want to contract to 
+# $$
+# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-2},j,k} V_{j,k,i_{tau},...i_{\tau+\nu-4}} \\
+# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \sum_k t^m_k u^n_k \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
+# = \sum_{m,n} \sum_n \tilde{\nu}^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
+# $$
+# with $\tilde{\nu}^{m,n} = \lambda^m \kappa^n (\sum_j t^m_j u^n_j)^2$ a matrix.
+# We denote by $M,N$ the number of components in $T,V$.
+# To place everything on a common index, we set
+# $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
+# $$
+# \Lambda^{1:M, M+1:M+N} = \tilde{\nu}
+# $$
+# With all other entries of $\Lambda =0$. 
+# In other words, $\Lambda$ has block structure: 
+# $$
+# \Lambda = \begin{pmatrix}
+# 0 & \tilde{\nu}\\
+# 0 & 0
+# \end{pmatrix}
+# $$
+
+# %%
+
+@DecompSymmetricTensor.implements_ufunc.outer(np.outer)
+def symmetric_outer(self,other): 
+    #check if compatible
+    if not isinstance(other, DecompSymmetricTensor): 
+        raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
+    if not self.dim == other.dim: 
+        raise ValueError("Tensor dimension must match.")
+    if not len(self.multiplicities)==1:
+        raise NotImplementedError
+    if not len(other.multiplicities)==1:
+        raise NotImplementedError
+    if other.multiplicities[0] > self.multiplicities[0]: 
+        return other.outer(self)
         
+    out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
+    out.multiplicities = (self.multiplicities[0], other.multiplicities[0])
+    out.components = torch.cat((self.components , other.components ), 0) 
+        
+    out.weights = torch.zeros((self.num_components + other.num_components,
+                                   self.num_components + other.num_components)) 
+    out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n->mn', self.weights, other.weights)
+    return out
+
+@DecompSymmetricTensor.implements_ufunc.outer(np.tensordot)
+def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Union[DecompSymmetricTensor, float]: 
+    #check if compatible
+    if axes == 0: 
+        return np.outer(self,other)
+    if not isinstance(other, DecompSymmetricTensor): 
+        raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
+    if not self.dim == other.dim: 
+        raise ValueError("Tensor dimension must match.")
+    if not len(self.multiplicities)==1:
+        raise NotImplementedError
+    if not len(other.multiplicities)==1:
+        raise NotImplementedError
+    if other.multiplicities[0] > self.multiplicities[0]: 
+        return np.tensordot(other,self)
+    
+    if axes ==1:
         out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
         out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
         out.components = torch.cat((self.components , other.components ), 0) 
-        
-        out.weights = torch.zeros((self.num_components + other.num_components)) 
+        out.weights = torch.zeros((self.num_components + other.num_components,
+                                       self.num_components + other.num_components)) 
+        #equivalent to \nu in desc. above
         out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n,mj,nj->mn', self.weights, other.weights, self.components, other.components)
-        return out
+    
+    elif axes ==2: 
+        assert self.rank >=2, "Can only do double contraction with rank >= 2 tensor."
+        assert other.rank >=2, "Can only do double contraction with rank >= 2 tensor."
+        
+        if self.multiplicities[0] >2 and other.multiplicities[0]>2:
+            # structure of contraction \sum_{jk} A_...jk B_...jk
+            out = DecompSymmetricTensor(rank = self.rank+other.rank-4, dim = self.dim)
+            out.multiplicities = (self.multiplicities[0]-2,other.multiplicities[0]-2)
+            out.components = torch.cat((self.components , other.components ), 0) 
+            out.weights = torch.zeros((self.num_components + other.num_components,
+                                       self.num_components + other.num_components))
+            tilde_nu = torch.einsum('mj,nj->mn', \
+                                                       self.components, other.components)**2
+            out.weights[:self.num_components,self.num_components:] = \
+                torch.einsum('m,n,mn->mn', self.weights, other.weights, lambda_without_weighfactors)
+            
+        elif other.multiplicities[0] ==2: 
+            if self.multiplicities[0] >2:
+                # structure of contraction \sum_{jk} A_...jk B_jk
+                # other.components consumed by sum, only outer products of first component remain. 
+                out = DecompSymmetricTensor(rank = self.rank+other.rank-4, dim = self.dim)
+                out.multiplicities = (self.multiplicities[0]-2,)
+                out.components = self.components
+                lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
+                                                           self.components, other.components)**2
+                out.weights = torch.einsum('m,n,mn->m', self.weights, other.weights, lambda_without_weighfactors)
+            if self.multiplicities[0] == 2:
+                # structure of contraction \sum_{jk} A_jk B_jk
+                # result is therefore a float.
+                lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
+                                                           self.components, other.components)**2
+                out = torch.einsum('m,n,mn->', self.weights, other.weights, lambda_without_weighfactors)
+            
+    return out
+
+
 
 # %% [markdown]
 # # Tests
 
 # %% [markdown]
-# ## Instantiation, getting and setting of weights
+# ## Instantiation, getting and setting of weights, components and multiplicities
 
 # %%
 if __name__ == "__main__":
@@ -619,7 +817,8 @@ if __name__ == "__main__":
     assert all(np.isclose(C_2[index], A_2[index]+B_2[index]) for index in  C_2.indep_iter_repindex())
     
 
-# %%
+# %% [markdown]
+# second, higher order decomposed tensors
 
     # %%
     d = 5
@@ -643,6 +842,10 @@ if __name__ == "__main__":
     B_3 = two_factor_test_tensor(d,r, q = 2)
     C_3 = A_3+B_3
     assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
+
+# %% [markdown]
+# ## Tensordot
+#
 
 # %% [markdown]
 # ## More tests, unfinished
@@ -826,6 +1029,11 @@ if __name__ == "__main__":
 
 # %% [markdown]
 # ### Tensordot
+
+# %%
+
+# %% [markdown]
+# # More tests, unfinished
 
 # %%
 if __name__ == "__main__":
