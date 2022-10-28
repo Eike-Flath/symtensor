@@ -348,6 +348,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             out.weights = torch.zeros(out.num_components,out.num_components)
             out.weights[:self.num_components,:self.num_components] = self.weights
             out.weights[self.num_components:,self.num_components:] = other.weights
+            return out
         else: 
             raise NotImplementedError
     
@@ -598,15 +599,50 @@ if __name__ == "__main__":
 # %% [markdown]
 # ## Addition
 
-    # %%
-    d = 2
-    r = 3
-    A = two_comp_test_tensor(d,r)
-    B = two_comp_test_tensor(d,r)
-    
-    C = A+B
-    assert all(np.isclose(C[index], A[index]+B[index]) for index in  C.indep_iter_repindex())
+# %% [markdown]
+# First, pure decomposed tensors.
 
+    # %%
+    d = 5
+    r = 3
+    A_1 = two_comp_test_tensor(d,r)
+    B_1 = two_comp_test_tensor(d,r)
+    
+    C_1 = A_1+B_1
+    assert all(np.isclose(C_1[index], A_1[index]+B_1[index]) for index in  C_1.indep_iter_repindex())
+    
+    d = 10
+    r = 5
+    A_2 = two_comp_test_tensor(d,r)
+    B_2 = two_comp_test_tensor(d,r)
+    C_2 = A_2+B_2
+    assert all(np.isclose(C_2[index], A_2[index]+B_2[index]) for index in  C_2.indep_iter_repindex())
+    
+
+# %%
+
+    # %%
+    d = 5
+    r = 3
+    
+    A_1 = two_factor_test_tensor(d,r, q = 1)
+    B_1 = two_factor_test_tensor(d,r, q = 1)
+    C_1 = A_1+B_1
+    assert all(np.isclose(C_1[index], A_1[index]+B_1[index]) for index in  C_1.indep_iter_repindex())
+    
+    d = 5
+    r = 4
+    
+    A_2 = two_factor_test_tensor(d,r, q = 1)
+    B_2 = two_factor_test_tensor(d,r, q = 1)
+    C_2 = A_2+B_2
+    assert all(np.isclose(C_2[index], A_2[index]+B_2[index]) for index in  C_2.indep_iter_repindex())
+    
+    
+    A_3 = two_factor_test_tensor(d,r, q = 2)
+    B_3 = two_factor_test_tensor(d,r, q = 2)
+    C_3 = A_3+B_3
+    assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
 
 # %% [markdown]
 # ## More tests, unfinished
