@@ -110,7 +110,7 @@ class DenseSymmetricTensor(SymmetricTensor):
     _data                : Union[Array]
         
     # _validate_data mostly depends on the data format – overridden in subclasses
-    def _validate_data(self, data: Union[dict, "array-like"]) -> Tuple[Array, DType]:
+    def _validate_data(self, data: Union[dict, "array-like"], symmetrize=False) -> Tuple[Array, DType]:
         # DEVNOTE: Implementations in subclasses can assume that self.rank and
         #    self.dim are set to the value of arguments (but NOT self._dtype).
         #    They can also assume that `data` is not None.
@@ -149,6 +149,11 @@ class DenseSymmetricTensor(SymmetricTensor):
         elif not utils.is_symmetric(self._data):
             raise ValueError("Data are not symmetric.")
 
+    def _set_raw_data(self, key, arr):
+        if key != ():
+            raise KeyError("DenseSymmetricTensor has only one (virtual) key: `()`")
+        self._data = arr
+
     ## Dunder methods ##
 
     def __getitem__(self, key):
@@ -168,6 +173,7 @@ class DenseSymmetricTensor(SymmetricTensor):
                 rank=self.rank-1, dim=self.dim, data=self._data[key])
 
     def __setitem__(self, key, value):
+        value = np.asarray(value).astype(self.dtype)
         if isinstance(key, str):
             if np.ndim(value) == 0:
                 # If rank=3, then permcls_indep_iter_index yields 3-tuples of lists

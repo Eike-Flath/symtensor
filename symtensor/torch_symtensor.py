@@ -36,7 +36,7 @@ from scityping.torch import TorchTensor
 # from symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-#Script only imports
+# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -74,7 +74,7 @@ torch.tensordot(A, A, dims=1)
 #
 # Functions which use only ufuncs should therefore not require a specialized implementation for PyTorch, and can simply be inherited from the base class.
 #
-# All the functions defined using `SymmetricTensor.implements`, however, probably need a PyTorch version.  
+# All the functions defined using `SymmetricTensor.implements`, however, probably need a PyTorch version.
 # :::
 #
 # Note that many array functions – like `np.ndim`, `np.isclose`, … – still work, because the default implementation happens to work with Torch tensors. (For example, `np.ndim` checks for an `ndim` attribute.) This is probably a combination of accident and design. In no cases however will these array functions dispatch to an equivalent torch functions such as `torch.isclose`.
@@ -100,8 +100,19 @@ _numpy_to_torch_dtypes = bijection({
     np.dtype(np.complex128) : torch.complex128
 })
 
-# %% [markdown]
+# %% [markdown] tags=[]
 # ## Abstract `TorchSymmetricTensor`
+#
+# Compared to `SymmetricTensor`:
+# + *Adds* the following attributes :
+#     - `device`: Set to either `"cpu"` or `"gpu"`.
+#
+# + *Removes* the following methods:
+#     - `astype`: Torch tensors don't implement it
+#
+# + *Modifies* the following private methods:
+#     - `_validate_dataarray`: Validates to Torch types. This is anyway normally overridden by subclasses.
+#     - `_set_dtype`: Uses Torch dtypes
 
 # %%
 class TorchSymmetricTensor(SymmetricTensor):
@@ -109,19 +120,19 @@ class TorchSymmetricTensor(SymmetricTensor):
     Abstract `SymmetricTensor` using Torch tensors instead of NumPy arrays
     for the underlying storage.
     """
-    
+
     # Overridden class attributes
     array_type  : ClassVar[type]=torch.tensor
     # New attributes
     _device_name: str
-    
+
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Union[Array, Number]=np.float64(0),
                  dtype: Union[str,DType]=None,
                  device: Union[str, 'torch.device']="cpu"):
         """
         {{base_docstring}}
-        
+
         Torch-specific parameter
         ------------------------
         device: A string identifying a PyTorch device, either 'cpu' or 'gpu'.
@@ -135,9 +146,9 @@ class TorchSymmetricTensor(SymmetricTensor):
         if not self._device_name in {"cpu", "gpu"}:
             raise ValueError("`device` should be either 'cpu' or 'gpu'; "
                              f"received '{self._device_name}'.")
-                             
+
         # Convert possibly NumPy dtype to PyTorch
-                             
+
         # Let super class do the initialization
         super().__init__(rank = rank, dim = dim , data = data, dtype =dtype)
 
@@ -150,7 +161,7 @@ class TorchSymmetricTensor(SymmetricTensor):
         # Validate dtype
         # At present, PyTorch only has numeric & bool dtypes, so there isn't really anything to check
         assert isinstance(array.dtype, torch.dtype), "Not a Torch dtype."
-        
+
         return array
 
     def _set_dtype(self, dtype: Optional[DType]):
@@ -165,7 +176,7 @@ class TorchSymmetricTensor(SymmetricTensor):
         return torch.device(self._device_name)
 
     #### Pydantic serialization ####
-    
+
     # TODO: Can we get rid of this ? The only difference with the base class is the type of `data`; maybe that can be inferred from a `cls.array_type` ?
     class Data(BaseModel):
         rank: int
@@ -176,9 +187,9 @@ class TorchSymmetricTensor(SymmetricTensor):
         def json_encoder(cls, symtensor: SymmetricTensor):
             return cls(rank=symtensor.rank, dim=symtensor.dim,
                        data={str(k): v for k,v in symtensor.items()})
-        
+
         #Todo: Write encode funtion
-        def encode(self,): 
+        def encode(self,):
             #dirty hack
             pass
 
@@ -200,7 +211,7 @@ def result_type(*tensors_or_numbers) -> DType:
     """
     Extends support for numpy.result_type. SymmetricTensors are treated as
     arrays of the same dtype.
-    
+
     .. Caution:: In contrast to NumPy's `result_type`, this does not accept
        dtypes as arguments.
     """
