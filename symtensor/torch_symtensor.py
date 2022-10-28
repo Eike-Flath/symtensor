@@ -31,12 +31,12 @@ from scityping.torch import TorchTensor
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
 # #from symtensor import SymmetricTensor
-# from symtensor.symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
-# from symtensor.symtensor import base
-# from symtensor.symtensor import utils
+# from symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
+# from symtensor import base
+# from symtensor import utils
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+#Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -285,7 +285,7 @@ def result_array(*arrays_and_types) -> None:
 # ## `DenseTorchSymmetricTensor`
 
 # %%
-from symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
+from symtensor.dense_symtensor import DenseSymmetricTensor
 
 class DenseTorchSymmetricTensor(DenseSymmetricTensor, TorchSymmetricTensor):
     _data                : Union[TorchTensor]

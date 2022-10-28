@@ -45,7 +45,7 @@ from scityping.numpy import Array, DType
 # hv.extension('bokeh')
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+##Script only imports
 from .base import SymmetricTensor, array_function_dispatch
 from . import base
 from . import utils
@@ -862,7 +862,7 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 # %% [markdown]
 # ### Symmetrized operations
 #
-# These functions replace standard NumPy ones, making them symmetric.
+# #These functions replace standard NumPy ones, making them symmetric.
 #
 # @SymmetricTensor.implements_ufunc.outer(np.add, np.sub, np.multiply)
 # def symmetric_outer(self, other, ufunc=np.multiply):  # SYMMETRIC ALGEBRA
