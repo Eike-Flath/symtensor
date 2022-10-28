@@ -371,7 +371,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
 
 # %%
 ### Algebra ###
-@DecompSymmetricTensor.implements_ufunc.outer(np.add)
+@DecompSymmetricTensor.implements_ufunc(np.add)
 def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -398,6 +398,7 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
         return out
     else: 
         raise NotImplementedError
+
 
 
 # %% [markdown]
@@ -485,7 +486,6 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
 # $$
 
 # %%
-
 @DecompSymmetricTensor.implements_ufunc.outer(np.outer)
 def symmetric_outer(self,other): 
     #check if compatible
@@ -806,14 +806,14 @@ if __name__ == "__main__":
     A_1 = two_comp_test_tensor(d,r)
     B_1 = two_comp_test_tensor(d,r)
     
-    C_1 = A_1+B_1
+    C_1 = np.add(A_1,B_1)
     assert all(np.isclose(C_1[index], A_1[index]+B_1[index]) for index in  C_1.indep_iter_repindex())
     
     d = 10
     r = 5
     A_2 = two_comp_test_tensor(d,r)
     B_2 = two_comp_test_tensor(d,r)
-    C_2 = A_2+B_2
+    C_2 = np.add(A_2,B_2)
     assert all(np.isclose(C_2[index], A_2[index]+B_2[index]) for index in  C_2.indep_iter_repindex())
     
 
