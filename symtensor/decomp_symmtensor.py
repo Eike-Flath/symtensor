@@ -34,6 +34,36 @@
 #
 # We call $\lambda^m$ the weights and $t^m$ the vectors (strictly speaking, these could be again symmetric tensors) and $k,l$ in the example above the multiplicities.
 
+# %% [markdown]
+# ## Tensordot
+#
+# Suppose we have 
+#
+# $$
+# T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
+# $$
+# with $t^m$ vectors and $T$ has rank $\tau$.
+# and
+# $$
+# U = \sum_{m} \kappa^m u^m \otimes u^m \otimes \dots u^m
+# $$
+# with $u^m$ vectors and $T$ has rank $\nu$.
+#
+# Now we want to contract to 
+# $$
+# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} V_{j,i_{tau},...i_{\tau+\nu-2}} \\
+# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
+# = \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
+# $$
+# with $\nu^{m,n} = \lambda^m \kappa^n \sum_j t^m_j u^n_j$ a matrix.
+# We denote by $M,N$ the number of components in $T,V$.
+# To place everything on a common index, we set
+# $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore: 
+# $$
+# \Lambda^{1:M, M+1:M+N} = \lambda 
+# $$
+# With all other entries of $\Lambda =0$. 
+
 # %% tags=["remove-input"]
 from __future__ import annotations
 import statGLOW.typing
@@ -55,13 +85,12 @@ from scityping.torch import TorchTensor
 # # Module only imports
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
+# import symtensor.utils as utils 
 
 # %% tags=["active-py", "remove-cell"]
 Script only imports
-from .base import SymmetricTensor, array_function_dispatch
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
-from . import base
 from . import utils
 
 
@@ -249,6 +278,18 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                 #todo: test this against numpy.prod()
                 return sum( self._weights[i]*torch.prod(torch.tensor([self._components[i,j] for j in key]))
                             for i in range(self.num_components)) 
+            elif len(self._multiplicities) == 2:
+                indices_1, indices_2, num_partitions = \
+                    utils.twoway_partitions(key, self._multiplicities[0],
+                                            self._multiplicities[1], num_partitions = True)
+
+                return sum( self._weights[i,j] \
+                           *sum(torch.prod(torch.tensor([self._components[i,j_1] for j_1 in index_1]))\
+                                *torch.prod(torch.tensor([self._components[j,j_2] for j_2 in index_2]))\
+                                for index_1, index_2 in \
+                                utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
+                                                        self._multiplicities[1], num_partitions = False))
+                            for i,j in itertools.product(range(self.num_components),repeat =2))/num_partitions
             else: 
                 raise NotImplementedError
         else:
@@ -301,8 +342,35 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             out.components = torch.cat((self.components , other.components ), 0) 
             out.multiplicities = self.multiplicities
             return out
+        if len(self.multiplicities)==2:
+            out.components = torch.cat((self.components , other.components ), 0) 
+            out.multiplicities = self.multiplicities
+            out.weights = torch.zeros(out.num_components,out.num_components)
+            out.weights[:self.num_components,:self.num_components] = self.weights
+            out.weights[self.num_components:,self.num_components:] = other.weights
         else: 
             raise NotImplementedError
+    
+    def tensordot(self, other): 
+        #check if compatible
+        if not isinstance(other, DecompSymmetricTensor): 
+            raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
+        if not self.dim == other.dim: 
+            raise ValueError("Tensor dimension must match.")
+        if not len(self.multiplicities)==1:
+            raise NotImplementedError
+        if not len(other.multiplicities)==1:
+            raise NotImplementedError
+        if other.multiplicities[0] > self.multiplicities[0]: 
+            return other.tensordot(self)
+        
+        out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
+        out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
+        out.components = torch.cat((self.components , other.components ), 0) 
+        
+        out.weights = torch.zeros((self.num_components + other.num_components)) 
+        out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n,mj,nj->mn', self.weights, other.weights, self.components, other.components)
+        return out
 
 # %% [markdown]
 # # Tests
@@ -312,7 +380,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
 
 # %%
 if __name__ == "__main__":
-    # instantiation
+    # instantiation of vector
     A = DecompSymmetricTensor(rank = 1, dim =10) 
     assert A.rank == 1
     assert A.dim ==10
@@ -326,6 +394,22 @@ if __name__ == "__main__":
     assert (components == A.components).all()
     A.multiplicities =  multiplicities
     assert (A.multiplicities  == multiplicities)
+    
+    #outer product a x a x b
+    B = DecompSymmetricTensor(rank = 2, dim =10) 
+    assert B.rank == 2
+    assert B.dim ==10
+    
+    weights = torch.randn(size =(2,2))
+    components =  torch.randn(size =(2,10))
+    multiplicities = (2,1)
+    B.weights = weights
+    assert (weights == B.weights).all()
+    B.components = components 
+    assert (components == B.components).all()
+    B.multiplicities =  multiplicities
+    assert (B.multiplicities  == multiplicities)
+    
 
     # %%
     import pytest
@@ -344,12 +428,25 @@ if __name__ == "__main__":
         A.components =  torch.randn(size =(2,d))
         A.multiplicities = (r,)
         return A
+    
+    def two_factor_test_tensor(d,r, q = 1):
+        assert q<d
+        A = DecompSymmetricTensor(rank=r, dim=d)
+        A.weights = torch.randn(size =(2,2))
+        A.components =  torch.randn(size =(2,d))
+        A.multiplicities = (r-q,q)
+        return A
 
 
 # %% [markdown]
 # ### Indexing
 #
-# Test indexing. 
+# Test indexing for tensors of shape 
+#
+# $$
+# T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
+# $$
+# with $t^m$ vectors. 
 
     # %%
     A = DecompSymmetricTensor(rank = 3, dim =5)
@@ -395,6 +492,83 @@ if __name__ == "__main__":
                                   + B_3.weights[1]*B_3.components[1,0]*B_3.components[1,1]*B_3.components[1,2])
 
 # %% [markdown]
+# Test indexing for tensors of shape 
+# $$
+# T = \sum_{m} \lambda^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}}
+# $$
+# with $u^m, v^m $ vectors. 
+
+    # %%
+    d = 2
+    r = 2
+    q = 1
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.Tensor([[1,0],[0,0]])
+    A.components =  torch.randn(size =(2,d))
+    A.multiplicities = (r-q,q)
+    assert np.isclose(A.components[0,0]**2, A[0,0])
+    
+    A_1 = DecompSymmetricTensor(rank=r, dim=d)
+    A_1.weights = torch.Tensor([[1,0],[0,1]])
+    A_1.components =  torch.randn(size =(2,d))
+    A_1.multiplicities = (r-q,q)
+    assert np.isclose(A_1.components[0,0]**2+A_1.components[1,0]**2, A_1[0,0])
+    assert np.isclose(A_1.components[0,1]**2+A_1.components[1,1]**2, A_1[1,1])
+    assert np.isclose(A_1[1,0], A_1[0,1])
+    assert np.isclose(A_1.components[0,1]*A_1.components[0,0]
+                      +A_1.components[1,1]*A_1.components[1,0], A_1[1,0])
+    
+    r = 3
+    q = 1
+    A_2 = DecompSymmetricTensor(rank=r, dim=d)
+    A_2.weights = torch.Tensor([[1,0],[0,1]])
+    A_2.components =  torch.randn(size =(2,d))
+    A_2.multiplicities = (r-q,q)
+    assert np.isclose(A_2.components[0,0]**3+A_2.components[1,0]**3, A_2[0,0,0])
+    assert np.isclose(A_2.components[0,1]**3+A_2.components[1,1]**3, A_2[1,1,1])
+    assert np.isclose(A_2[1,0,0], A_2[0,0,1])
+    assert np.isclose(A_2.components[0,1]**2*A_2.components[0,0]
+                      +A_2.components[1,1]**2*A_2.components[1,0], A_2[1,1,0])
+
+    # %%
+    d = 13
+    r = 2
+    B_1 = two_factor_test_tensor(d,r)
+    assert np.isclose(B_1[0,0] , B_1.weights[0,0]*B_1.components[0,0]**2
+                              + B_1.weights[1,1]*B_1.components[1,0]**2
+                              +(B_1.weights[1,0]*B_1.components[1,0]*B_1.components[0,0]
+                               +B_1.weights[0,1]*B_1.components[0,0]*B_1.components[1,0]))
+    assert np.isclose(B_1[1,0] , (2*B_1.weights[0,0]*B_1.components[0,0]*B_1.components[0,1]
+                              + 2*B_1.weights[1,1]*B_1.components[1,0]*B_1.components[1,1]
+                              +(B_1.weights[1,0]*(B_1.components[1,0]*B_1.components[0,1]+B_1.components[1,1]*B_1.components[0,0])
+                               +B_1.weights[0,1]*(B_1.components[1,0]*B_1.components[0,1]+B_1.components[1,1]*B_1.components[0,0])))/2)
+    
+    d = 13
+    r = 3
+    B_1 = two_factor_test_tensor(d,r)
+    assert np.isclose(B_1[0,0,0] , B_1.weights[0,0]*B_1.components[0,0]**3
+                              + B_1.weights[1,1]*B_1.components[1,0]**3
+                              +(B_1.weights[1,0]*B_1.components[1,0]**2*B_1.components[0,0]
+                               +B_1.weights[0,1]*B_1.components[0,0]**2*B_1.components[1,0]))
+                                                                                       
+    assert np.isclose(B_1[1,0,0] ,B_1[0,1,0] )
+    assert np.isclose(B_1[10,0,0] ,B_1[0,10,0] )                                                                                   
+    assert np.isclose(B_1[10,0,0] , (3*B_1.weights[0,0]*B_1.components[0,10]*B_1.components[0,0]**2
+                              + 3*B_1.weights[1,1]*B_1.components[1,10]*B_1.components[1,0]**2
+                              +B_1.weights[1,0]*(B_1.components[1,0]**2*B_1.components[0,10] 
+                                                 + 2*B_1.components[1,10]*B_1.components[1,0]*B_1.components[0,0])
+                               +B_1.weights[0,1]*(B_1.components[0,0]**2*B_1.components[1,10] 
+                                                  + 2*B_1.components[0,10]*B_1.components[0,0]*B_1.components[1,0]))/3 )
+    assert np.isclose(B_1[10,11,0] , (3*B_1.weights[0,0]*B_1.components[0,10]*B_1.components[0,0]*B_1.components[0,11]
+                              + 3*B_1.weights[1,1]*B_1.components[1,10]*B_1.components[1,0]*B_1.components[1,11]
+                              +B_1.weights[1,0]*(B_1.components[1,0]*B_1.components[1,11]*B_1.components[0,10] 
+                                                 + B_1.components[1,10]*B_1.components[1,0]*B_1.components[0,11]
+                                                + B_1.components[1,10]*B_1.components[1,11]*B_1.components[0,0])
+                               +B_1.weights[0,1]*(B_1.components[0,0]*B_1.components[0,11]*B_1.components[1,10] 
+                                                 + B_1.components[0,10]*B_1.components[0,0]*B_1.components[1,11]
+                                                + B_1.components[0,10]*B_1.components[0,11]*B_1.components[1,0]))/3 )
+
+# %% [markdown]
 # ## Shape, size, dtype
 
     # %%
@@ -420,6 +594,9 @@ if __name__ == "__main__":
     assert A.shape == (20,)*10
     assert A.size == 20*2+2
     assert A.dtype == torch.float64
+
+# %% [markdown]
+# ## Addition
 
     # %%
     d = 2

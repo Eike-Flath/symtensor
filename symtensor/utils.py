@@ -269,7 +269,7 @@ if exenv in {"notebook", "jbook"}:
 # Both the order in which sublist pairs are returned, and the order within sublists, is undefined. For implementation convenience and efficiency, sublists are returned as NumPy arrays, but this should be considered an implementation detail.
 
 # %%
-def twoway_partitions(lst: Sequence[Any], size1: int, size2: int
+def twoway_partitions(lst: Sequence[Any], size1: int, size2: int, num_partitions: bool = True
     ) -> Tuple[Iterable[Sequence], Iterable[Sequence], int]:
     """
     Return all unique two-way partitions of `lst`, where partitions have
@@ -284,7 +284,7 @@ def twoway_partitions(lst: Sequence[Any], size1: int, size2: int
     -------
     - Generator: sublists 1
     - Generator: sublists 2
-    - int: The number of partitions
+    - int: The number of partitions if num_partitions is True
     """
     assert size1 + size2 == len(lst), 'Sizes must sum to length of `lst`.'
 
@@ -294,8 +294,42 @@ def twoway_partitions(lst: Sequence[Any], size1: int, size2: int
     indices_2 = (indices - idcs1 for idcs1 in indices_1)  # Since we only iterate this once, we can use a generator.
     lsts_1 = (arr[list(idcs1)] for idcs1 in indices_1)
     lsts_2 = (arr[list(idcs2)] for idcs2 in indices_2)
+    
+    if num_partitions:
+        return lsts_1, lsts_2, len(indices_1)
+    else: 
+        return lsts_1, lsts_2
+    
+def twoway_partitions_pairwise_iterator(lst: Sequence[Any], size1: int, size2: int, num_partitions: bool = True
+    ) -> Tuple[Iterable[Sequence], Iterable[Sequence], int]:
+    """
+    Return all unique two-way partitions of `lst`, where partitions have
+    sizes `size1` and `size2`. All elements in `lst` are treated as distinct.
 
-    return lsts_1, lsts_2, len(indices_1)
+    Both the order in which sublist pairs are returned, and the order within
+    sublists, is undefined.
+
+    .. Note:: The sum of `size1` and `size2` must equal the length of `lst`.
+
+    Returns
+    -------
+    - Generator: pairs of (sublists 1,sublist2)
+    - int: The number of partitions if num_partitions is True
+    """
+    assert size1 + size2 == len(lst), 'Sizes must sum to length of `lst`.'
+
+    arr = np.array(lst)  # To allow fancy indexing
+    indices = set(range(len(lst)))
+    indices_1 = [set(idcs) for idcs in itertools.combinations(indices, size1)]
+    indices_2 = (indices - idcs1 for idcs1 in indices_1)  # Since we only iterate this once, we can use a generator.
+    lsts_1 = (arr[list(idcs1)] for idcs1 in indices_1)
+    lsts_2 = (arr[list(idcs2)] for idcs2 in indices_2)
+    
+    if num_partitions:
+        return zip(lsts_1, lsts_2), len(indices_1)
+    else: 
+        return zip(lsts_1, lsts_2)
+    
 
 
 # %%
