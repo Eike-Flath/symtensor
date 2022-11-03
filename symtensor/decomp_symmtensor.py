@@ -225,7 +225,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """Weight of each component"""
         self._multiplicities = value
     
-    
+    def copy(self):
+        """Copy"""
+        other = DecompSymmetricTensor(rank = self.rank, dim=self.dim)
+        other.multiplicities = self.multiplicities
+        other.components = self.components
+        other.weights = self.weights
+        return other
     ## Dunder methods ##
 
     def __repr__(self):
@@ -334,7 +340,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                     else: 
                         # all components equal, arrangement does not matter
                         outer_prod = self.components[i,:]
-                        for j in range(self.rank-1):
+                        for l in range(self.rank-1):
                             outer_prod = torch.tensordot(outer_prod,self.components[i,:], dims =0)
                         dense_tensor += self.weights[i,i]* outer_prod
             return dense_tensor
@@ -342,60 +348,6 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             raise NotImplementedError
 
 
-# %%
-## test todense
-if __name__ == "__main__": 
-    A = DecompSymmetricTensor(rank = 1, dim =10)     
-    weights = [0,1]
-    components =  torch.randn(size =(2,10))
-    A.weights = weights
-    A.components = components 
-    A.multiplicities =  (1,)
-
-    assert (A.todense()==A.components[1,:]).all()
-    
-    B = DecompSymmetricTensor(rank = 3, dim =3)   
-    weights = [0.5,1, 0.01]
-    components =  torch.randn(size =(3,3))
-    B.weights = weights
-    B.components = components 
-    B.multiplicities =  (3,)
-    
-    B_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
-                + torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) \
-             +0.01*torch.tensordot(components[2,:],torch.outer(components[2,:],components[2,:]),dims=0) 
-    assert torch.allclose(B.todense(),B_dense)
-    
-    C = DecompSymmetricTensor(rank = 3, dim =3)   
-    weights = torch.Tensor([[0.5,0.5],[0,0.1]])
-    components =  torch.randn(size =(2,3))
-    C.weights = weights
-    C.components = components 
-    C.multiplicities =  (2,1)
-    
-    C_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
-                + 0.5/binom(3,1)*(torch.tensordot(components[0,:],torch.outer(components[0,:],components[1,:]),dims=0) \
-                     +torch.tensordot(components[0,:],torch.outer(components[1,:],components[0,:]),dims=0) \
-                     +torch.tensordot(components[1,:],torch.outer(components[0,:],components[0,:]),dims=0)) \
-             +0.1*torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) 
-                           
-    assert torch.allclose(C.todense(),C_dense)
-    
-    D = DecompSymmetricTensor(rank = 3, dim =3)   
-    weights = torch.Tensor([[0.5,0.5],[0,0.1]])
-    components =  torch.randn(size =(2,3))
-    D.weights = weights
-    D.components = components 
-    D.multiplicities =  (1,2)
-    
-    D_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
-                + 0.5/binom(3,1)*(torch.tensordot(components[0,:],torch.outer(components[1,:],components[1,:]),dims=0) \
-                     +torch.tensordot(components[1,:],torch.outer(components[1,:],components[0,:]),dims=0) \
-                     +torch.tensordot(components[1,:],torch.outer(components[0,:],components[1,:]),dims=0)) \
-             +0.1*torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) 
-                           
-    assert torch.allclose(D.todense(),D_dense)
-    
 
 # %% [markdown]
 # ## Tensor addition
@@ -583,7 +535,7 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
 # $$
 
 # %%
-@DecompSymmetricTensor.implements_ufunc.outer(np.outer)
+@DecompSymmetricTensor.implements(np.outer)
 def symmetric_outer(self,other): 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -594,10 +546,11 @@ def symmetric_outer(self,other):
         raise NotImplementedError
     if not len(other.multiplicities)==1:
         raise NotImplementedError
+    #higher multiplicities come first
     if other.multiplicities[0] > self.multiplicities[0]: 
-        return other.outer(self)
+        return np.outer(other,self)
         
-    out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
+    out = DecompSymmetricTensor(rank = self.rank+other.rank, dim = self.dim)
     out.multiplicities = (self.multiplicities[0], other.multiplicities[0])
     out.components = torch.cat((self.components , other.components ), 0) 
         
@@ -606,7 +559,11 @@ def symmetric_outer(self,other):
     out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n->mn', self.weights, other.weights)
     return out
 
-@DecompSymmetricTensor.implements_ufunc.outer(np.tensordot)
+@DecompSymmetricTensor.implements_ufunc.outer(np.multiply)
+def symmetric_multiply_outer(self,other): 
+    return np.outer(self,other)
+
+@DecompSymmetricTensor.implements(np.tensordot)
 def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Union[DecompSymmetricTensor, float]: 
     #check if compatible
     if axes == 0: 
@@ -616,55 +573,89 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
     if not self.dim == other.dim: 
         raise ValueError("Tensor dimension must match.")
     if not len(self.multiplicities)==1:
-        raise NotImplementedError
+        raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
     if not len(other.multiplicities)==1:
-        raise NotImplementedError
+        raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
     if other.multiplicities[0] > self.multiplicities[0]: 
-        return np.tensordot(other,self)
+        return np.tensordot(other,self, axes = axes)
     
     if axes ==1:
-        out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
-        out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
-        out.components = torch.cat((self.components , other.components ), 0) 
-        out.weights = torch.zeros((self.num_components + other.num_components,
-                                       self.num_components + other.num_components)) 
-        #equivalent to \nu in desc. above
-        out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n,mj,nj->mn', self.weights, other.weights, self.components, other.components)
-    
-    elif axes ==2: 
+        if self.multiplicities[0]>1:
+            out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
+            if other.multiplicities[0]>1:
+                out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
+                out.components = torch.cat((self.components , other.components ), 0) 
+                out.weights = torch.zeros((self.num_components + other.num_components,
+                                               self.num_components + other.num_components)) 
+                #equivalent to \nu in desc. above
+                out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n,mj,nj->mn', \
+                                            self.weights, other.weights, self.components, other.components)
+                return out
+            else: 
+                #second tensor gets completely consumed
+                out.multiplicities = (self.multiplicities[0],)
+                out.components = self.components 
+                #equivalent to \nu in desc. above
+                out.weights = torch.einsum('m,n,mj,nj->m', \
+                                           self.weights, other.weights, 
+                                           self.components, other.components)
+                return out
+        elif self.multiplicities[0]>1:
+            assert other.multiplicities[0] <=1
+            out = torch.einsum('m,n,mj,nj->',self.weights, other.weights, 
+                              self.components, other.components)
+            return out
+    #contraction over two or more indices
+    elif axes >=2: 
         assert self.rank >=2, "Can only do double contraction with rank >= 2 tensor."
         assert other.rank >=2, "Can only do double contraction with rank >= 2 tensor."
         
-        if self.multiplicities[0] >2 and other.multiplicities[0]>2:
+        if self.multiplicities[0] >axes and other.multiplicities[0]>axes:
             # structure of contraction \sum_{jk} A_...jk B_...jk
             out = DecompSymmetricTensor(rank = self.rank+other.rank-4, dim = self.dim)
-            out.multiplicities = (self.multiplicities[0]-2,other.multiplicities[0]-2)
+            out.multiplicities = (self.multiplicities[0]-axes,other.multiplicities[0]-axes)
             out.components = torch.cat((self.components , other.components ), 0) 
             out.weights = torch.zeros((self.num_components + other.num_components,
                                        self.num_components + other.num_components))
-            tilde_nu = torch.einsum('mj,nj->mn', \
-                                                       self.components, other.components)**2
+            lambda_without_weighfactors = torch.einsum('mj,nj->mn', self.components, other.components)**axes
             out.weights[:self.num_components,self.num_components:] = \
                 torch.einsum('m,n,mn->mn', self.weights, other.weights, lambda_without_weighfactors)
             
-        elif other.multiplicities[0] ==2: 
-            if self.multiplicities[0] >2:
+        elif other.multiplicities[0] == axes: 
+            if self.multiplicities[0] > axes:
                 # structure of contraction \sum_{jk} A_...jk B_jk
                 # other.components consumed by sum, only outer products of first component remain. 
                 out = DecompSymmetricTensor(rank = self.rank+other.rank-4, dim = self.dim)
-                out.multiplicities = (self.multiplicities[0]-2,)
+                out.multiplicities = (self.multiplicities[0]-axes,)
                 out.components = self.components
                 lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
-                                                           self.components, other.components)**2
+                                                           self.components, other.components)**axes
                 out.weights = torch.einsum('m,n,mn->m', self.weights, other.weights, lambda_without_weighfactors)
-            if self.multiplicities[0] == 2:
+            if self.multiplicities[0] == axes:
                 # structure of contraction \sum_{jk} A_jk B_jk
                 # result is therefore a float.
                 lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
-                                                           self.components, other.components)**2
+                                                           self.components, other.components)**axes
                 out = torch.einsum('m,n,mn->', self.weights, other.weights, lambda_without_weighfactors)
             
     return out
+
+
+# %% [markdown]
+# ## Tensor comparison
+
+# %%
+@DecompSymmetricTensor.implements(np.allclose)
+def symmetric_tensorcompare(self, other: DecompSymmetricTensor, axes: int = 2) -> Union[DecompSymmetricTensor, float]: 
+    if not isinstance(other, DecompSymmetricTensor): 
+        raise TypeError("can only compare DecompSymmetricTensor to DecompSymmetricTensor")
+    if not self.dim == other.dim: 
+        raise ValueError("Tensor dimension must match.")
+    if not self.rank == other.rank: 
+        raise ValueError("Tensor dimension must match.")
+    self_flat = torch.Tensor([self[index] for index in self.indep_iter_repindex()])
+    other_flat = torch.Tensor([other[index] for index in other.indep_iter_repindex()])
+    return torch.allclose(self_flat,other_flat)
 
 
 
@@ -679,7 +670,7 @@ if __name__ == "__main__":
     # instantiation of vector
     A = DecompSymmetricTensor(rank = 1, dim =10) 
     assert A.rank == 1
-    assert A.dim ==10
+    assert A.dim == 10
     
     weights = [0,1]
     components =  torch.randn(size =(2,10))
@@ -892,6 +883,91 @@ if __name__ == "__main__":
     assert A.dtype == torch.float64
 
 # %% [markdown]
+# ### Casting to dense
+
+# %%
+if __name__ == "__main__": 
+    A = DecompSymmetricTensor(rank = 1, dim =10)     
+    weights = [0,1]
+    components =  torch.randn(size =(2,10))
+    A.weights = weights
+    A.components = components 
+    A.multiplicities =  (1,)
+
+    assert (A.todense()==A.components[1,:]).all()
+    
+    B = DecompSymmetricTensor(rank = 3, dim =3)   
+    weights = [0.5,1, 0.01]
+    components =  torch.randn(size =(3,3))
+    B.weights = weights
+    B.components = components 
+    B.multiplicities =  (3,)
+    
+    B_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
+                + torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) \
+             +0.01*torch.tensordot(components[2,:],torch.outer(components[2,:],components[2,:]),dims=0) 
+    assert torch.allclose(B.todense(),B_dense)
+    
+    C = DecompSymmetricTensor(rank = 3, dim =3)   
+    weights = torch.Tensor([[0.5,0.5],[0,0.1]])
+    components =  torch.randn(size =(2,3))
+    C.weights = weights
+    C.components = components 
+    C.multiplicities =  (2,1)
+    
+    C_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
+                + 0.5/binom(3,1)*(torch.tensordot(components[0,:],torch.outer(components[0,:],components[1,:]),dims=0) \
+                     +torch.tensordot(components[0,:],torch.outer(components[1,:],components[0,:]),dims=0) \
+                     +torch.tensordot(components[1,:],torch.outer(components[0,:],components[0,:]),dims=0)) \
+             +0.1*torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) 
+    assert torch.allclose(C.todense(),C_dense)
+    
+    D = DecompSymmetricTensor(rank = 3, dim =3)   
+    weights = torch.Tensor([[0.5,0.5],[0,0.1]])
+    components =  torch.randn(size =(2,3))
+    D.weights = weights
+    D.components = components 
+    D.multiplicities =  (1,2)
+    
+    D_dense = 0.5*torch.tensordot(components[0,:],torch.outer(components[0,:],components[0,:]),dims=0) \
+                + 0.5/binom(3,1)*(torch.tensordot(components[0,:],torch.outer(components[1,:],components[1,:]),dims=0) \
+                     +torch.tensordot(components[1,:],torch.outer(components[1,:],components[0,:]),dims=0) \
+                     +torch.tensordot(components[1,:],torch.outer(components[0,:],components[1,:]),dims=0)) \
+             +0.1*torch.tensordot(components[1,:],torch.outer(components[1,:],components[1,:]),dims=0) 
+                           
+    assert torch.allclose(D.todense(),D_dense)
+    
+
+
+# %% [markdown]
+# ### Copying
+
+    # %%
+    d = 10
+    r = 4
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    assert torch.allclose(B.todense(),A.todense())
+    
+    d = 10
+    r = 4
+    A = two_factor_test_tensor(d,r, q=2)
+    B = A.copy()
+    assert torch.allclose(B.todense(),A.todense())
+
+# %% [markdown]
+# ### Tensor comparison
+
+    # %%
+    for d in range(1,5): 
+        for r in range(1,4): 
+            A = two_comp_test_tensor(d,r)
+            B = two_comp_test_tensor(d,r)
+            C = A.copy()
+            assert torch.allclose(B.todense(),A.todense())== np.allclose(A,B)
+            assert torch.allclose(C.todense(),A.todense())== np.allclose(C,A)
+
+# %% [markdown]
 # ## Addition
 
 # %% [markdown]
@@ -911,7 +987,8 @@ if __name__ == "__main__":
     A_2 = two_comp_test_tensor(d,r)
     B_2 = two_comp_test_tensor(d,r)
     C_2 = np.add(A_2,B_2)
-    assert all(np.isclose(C_2[index], A_2[index]+B_2[index]) for index in  C_2.indep_iter_repindex())
+
+    assert torch.allclose(C_2.todense(), A_2.todense()+B_2.todense())
 
 
 # %% [markdown]
@@ -941,8 +1018,90 @@ if __name__ == "__main__":
     assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
 
 # %% [markdown]
+# ### outer product
+
+# %%
+
+    A = DecompSymmetricTensor(rank = 1, dim =10)     
+    A_weights = torch.Tensor([1,0])
+    A_components =  torch.randn(size =(2,10))
+    A.weights = A_weights
+    A.components = A_components 
+    A.multiplicities =  (1,)
+    
+    B = DecompSymmetricTensor(rank = 1, dim =10)     
+    B_weights = torch.Tensor([0,1])
+    B_components =  torch.randn(size =(2,10))
+    B.weights = B_weights
+    B.components = B_components 
+    B.multiplicities =  (1,)
+    
+    C = np.outer(A,B)
+    C_dense = torch.outer(A_components[0,:],B_components[1,:])
+    #compare to symmetrized tensor
+    assert torch.allclose( C.todense(), (C_dense+ C_dense.T)/2.0)
+    
+    A = DecompSymmetricTensor(rank = 2, dim =10)     
+    A_weights = torch.Tensor([1,0])
+    A_components =  torch.randn(size =(2,10))
+    A.weights = A_weights
+    A.components = A_components 
+    A.multiplicities =  (2,)
+    
+    B = DecompSymmetricTensor(rank = 2, dim =10)     
+    B_weights = torch.Tensor([0,1])
+    B_components =  torch.randn(size =(2,10))
+    B.weights = B_weights
+    B.components = B_components 
+    B.multiplicities =  (2,)
+    
+    C = np.outer(A,B)
+    
+    assert torch.isclose(C[0,0,0,0],A[0,0]*B[0,0])
+    assert  torch.isclose(C[1,0,0,0],(A[1,0]*B[0,0]+A[0,0]*B[1,0])/2.0)
+    assert  torch.isclose(C[1,1,0,0] , (A[1,1]*B[0,0]+A[0,0]*B[1,1]+4*A[1,0]*B[1,0])/6.0)
+    assert  torch.isclose(C[1,2,3,3] , (A[1,2]*B[3,3]+2*A[1,3]*B[2,3] \
+                                       +2*A[2,3]*B[1,3]+A[3,3]*B[1,2])/6.0)
+    assert  torch.isclose(C[1,2,3,4] , (A[1,2]*B[3,4]+A[1,3]*B[2,4]+A[1,4]*B[2,3] \
+                                       +A[2,3]*B[1,4]+A[2,4]*B[1,3]+A[3,4]*B[1,2]
+                                       )/6.0)
+
+# %% [markdown]
 # ## Tensordot
 #
+
+    # %%
+    from testing.unittests import _test_tensordot
+    d = 4
+    for r in range(2,4): 
+        tensor_1 = two_comp_test_tensor(d,r)
+        for r_1 in range(2,4):
+            print(r,r_1)
+            tensor_2 = two_comp_test_tensor(d,r_1)
+            test_tensor_13 = np.tensordot(tensor_1, tensor_2, axes=0)
+            assert np.allclose(test_tensor_13, np.multiply.outer(tensor_1,tensor_2))
+
+            #Contract over first and last indices:
+            test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
+            dense_tensor_14 = utils.symmetrize(np.tensordot(
+                tensor_1.todense(), tensor_2.todense(), axes=1 ))
+            assert np.allclose(test_tensor_14.todense(), dense_tensor_14)
+
+            test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes = 2)
+            if tensor_1.rank+tensor_2.rank > 4:
+                dense_141 = torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2).numpy()
+                sym_dense_141 = utils.symmetrize(dense_141)
+                assert np.allclose(test_tensor_141.todense().numpy(), sym_dense_141)
+                if tensor_1.rank==3 and tensor_2.rank == 3:
+                    test_tensor_142 =  np.tensordot(tensor_1, tensor_2, axes = 3)
+                    assert torch.allclose(test_tensor_142, 
+                                      torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=3))
+                test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes = 2)
+            elif tensor_1.rank+tensor_2.rank == 4:
+                assert torch.allclose(test_tensor_141, 
+                                      torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2))
+
+
 
 # %% [markdown]
 # ## More tests, unfinished
