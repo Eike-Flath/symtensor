@@ -28,11 +28,12 @@ from tqdm.auto import tqdm
 from typing import Generator, Type
 
 import statGLOW.typing
-from statGLOW.stats.symtensor import SymmetricTensor
-from statGLOW.stats.symtensor import utils, symalg
+from symtensor import SymmetricTensor
+from symtensor import utils, symalg
 # For serialization test
 from pydantic import BaseModel
-from scityping import Serializable, Array, DType
+from scityping import Serializable
+from scityping.numpy import Array, DType
 
 
 # %%
