@@ -346,6 +346,16 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             return dense_tensor
         else:
             raise NotImplementedError
+            
+            
+    def contract_all_indices_with_matrix(self, W): 
+        """
+        Contract all indices of the tensor with a matrix W:
+        out_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+        """
+        out = self.copy()
+        out.components = torch.einsum("mj, jk -> mk", self.components, W)
+        return out
 
 
 
@@ -600,7 +610,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                                            self.weights, other.weights, 
                                            self.components, other.components)
                 return out
-        elif self.multiplicities[0]>1:
+        elif self.multiplicities[0]==1:
             assert other.multiplicities[0] <=1
             out = torch.einsum('m,n,mj,nj->',self.weights, other.weights, 
                               self.components, other.components)
@@ -1071,7 +1081,6 @@ if __name__ == "__main__":
 #
 
     # %%
-    from testing.unittests import _test_tensordot
     d = 4
     for r in range(2,4): 
         tensor_1 = two_comp_test_tensor(d,r)
@@ -1088,7 +1097,7 @@ if __name__ == "__main__":
             assert np.allclose(test_tensor_14.todense(), dense_tensor_14)
 
             test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes = 2)
-            if tensor_1.rank+tensor_2.rank > 4:
+            if tensor_1.rank+tensor_2.rank > 5:
                 dense_141 = torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2).numpy()
                 sym_dense_141 = utils.symmetrize(dense_141)
                 assert np.allclose(test_tensor_141.todense().numpy(), sym_dense_141)
@@ -1104,402 +1113,31 @@ if __name__ == "__main__":
 
 
 # %% [markdown]
-# ## More tests, unfinished
-
-# %%
-if __name__ == "main":
-    #subtensor generation with 1 index
-    for A in test_tensors():
-        for i in range(A.dim):
-            assert (A[i].todense() == A.todense()[i]).any()
-    #subtensor generation with multiple indices
-    dim = 4
-    rank = 4
-    #test is_equal
-    diagonal = np.random.rand(dim)
-    odiag1 = np.random.rand()
-    odiag2 = np.random.rand()
-    A = SymmetricTensor(rank = rank, dim =dim)
-    A['iiii'] = diagonal
-    A['iiij'] = odiag1
-    A['iijj'] = odiag2
-
-    assert (A[0,1,:,:].todense() == A.todense()[0,1,::]).any()
-    assert (A[0,1,:,:]).is_equal(A[1,0,:,:])
-    assert (A[0,1,1,:]).is_equal(A[1,1,0,:])
-    assert all([A[0,0,0,:][i] == A[0,0,0,i] for i in range(dim)])
-
-
-    # %%
-    #outer product
-    A = next(test_tensors())
-    B = next(test_tensors())
-    Ad = A.todense()
-    Bd = B.todense()
-    assert (np.multiply.outer(A,B).todense() == np.multiply.outer(Ad,Bd)).any()
-
-# %% [markdown]
-# ### Assignement
-#
-# Test assignement: Assigning one value modifies all associated symmetric components.
-
-    # %%
-    A = SymmetricTensor(3, 3)
-    A[1, 2, 0] = 1
-    assert np.all(
-        A.todense() ==
-        np.array([[[0., 0., 0.],
-                   [0., 0., 1.],
-                   [0., 1., 0.]],
-
-                  [[0., 0., 1.],
-                   [0., 0., 0.],
-                   [1., 0., 0.]],
-
-                  [[0., 1., 0.],
-                   [1., 0., 0.],
-                   [0., 0., 0.]]])
-    )
-
-# %% [markdown]
-# ### Copying and Equality
-
-# %%
-if __name__ == "__main__":
-    rank = 4
-    dim = 50
-    #test is_equal
-    diagonal = np.random.rand(dim)
-    odiag1 = np.random.rand()
-    odiag2 = np.random.rand()
-    A = SymmetricTensor(rank = rank, dim =dim)
-    B = SymmetricTensor(rank = rank, dim =dim)
-    A['iiii'] = diagonal
-    B['iiii'] = diagonal
-    A['iiij'] = odiag1
-    B['iiij'] = odiag1
-    A['iijj'] = odiag2
-    B['iijj'] = odiag2
-    assert A.is_equal(B)
-
-    #test copying
-    C = A.copy()
-    assert C.is_equal(A)
-
-# %% [markdown]
-# ### Serialization
-
-    # %%
-    from statGLOW.smttask_ml import scityping
-    class Foo(BaseModel):
-        A: SymmetricTensor
-        class Config:
-            json_encoders = scityping.json_encoders  # Includes Serializable encoder
-    foo = Foo(A=A)
-    foo2 = Foo.parse_raw(foo.json())
-    assert foo2.json() == foo.json()
-
-# %% [markdown]
-# ### Avoiding array coercion
-#
-# `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).
-
-# %% [markdown]
-# if __name__ == "__main__":
-#     A = SymmetricTensor(rank=2, dim=3)
-#     B = SymmetricTensor(rank=2, dim=3)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # `like` argument is supported and avoids the conversion to dense array
-#     with does_not_warn(UserWarning):
-#         assert type(np.asarray(A, like=SymmetricTensor(0,0))) is SymmetricTensor
-
-# %% [markdown]
-# Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
-
-# %% [markdown]
-#     # Context manager works as expected…
-#     with utils.make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-#         np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-#         np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-#     # …and returns the module to its clean state on exit…
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-#     with pytest.warns(UserWarning):
-#         assert type(np.asarray(A)) is np.ndarray
-#     # …even when an error is raised within the context.
-#     try:
-#         with utils.make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#             assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-#             raise ValueError
-#     except ValueError:
-#         pass
-#     assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-
-# %% [markdown]
-# Test dispatched array functions which use the `make_array_like` decorator to avoid coercion.
-
-# %% [markdown]
-#     with does_not_warn(UserWarning):
-#         np.einsum_path("ij,ik", A, B)
-#         np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-#
-#     with utils.make_array_like(SymmetricTensor(0,0), np.core.einsumfunc):
-#         with does_not_warn(UserWarning):
-#             np.einsum_path("ij,ik", A, B)
-#             np.einsum_path("ij,ik", np.ones((2,2)), np.ones((2,2)))
-
-# %% [markdown]
-# ### Arithmetic
-
-# %%
-import math
-
-# %%
-# %timeit math.prod(range(1, 100+1))
-# %timeit np.prod(range(1, 100+1))
-
-# %%
-if __name__ == "__main__":
-
-    rank = 4
-    dim = 2
-    #test addition
-    test_tensor_1 = SymmetricTensor(rank=rank, dim=dim)
-    test_tensor_1['iiii'] = np.random.rand(2)
-    test_tensor_2 = np.add(test_tensor_1,1.0)
-    test_tensor_3 = SymmetricTensor(rank=rank, dim=dim)
-    for σcls in test_tensor_3.perm_classes:
-                test_tensor_3[σcls] = 1.0
-    test_tensor_4 =  test_tensor_2 - test_tensor_3
-    print(test_tensor_1, test_tensor_4)
-    assert test_tensor_4.is_equal(test_tensor_1, prec =1e-10)
-    test_tensor_5 = np.multiply(test_tensor_2, -1)
-    test_tensor_6 = np.multiply(test_tensor_5, -1)
-    #test multiplication
-    assert test_tensor_6.is_equal(test_tensor_2, prec =1e-10)
-    test_tensor_7 = np.exp(test_tensor_2)
-    test_tensor_8 = np.log(test_tensor_7)
-    #test log, exp
-    assert test_tensor_8.is_equal(test_tensor_2, prec =1e-10)
-
-# %% [markdown]
-# ### Tensordot
-
-# %%
-
-# %% [markdown]
-# # More tests, unfinished
-
-# %%
-if __name__ == "__main__":
-    #outer product
-    TimeThis.on = False
-
-    test_tensor_1d = test_tensor_1.todense()
-    test_tensor_2d = test_tensor_2.todense()
-    test_tensor_3d = test_tensor_3.todense()
-    prec =1e-10
-    test_tensor_8 = np.multiply.outer(test_tensor_2,test_tensor_3)
-    assert (abs(test_tensor_8.todense()- symmetrize(np.multiply.outer(test_tensor_2d,test_tensor_3d)))<prec).all()
-    test_tensor_9 = np.multiply.outer(test_tensor_1,test_tensor_3)
-    assert (abs(test_tensor_9.todense() - symmetrize(np.multiply.outer(test_tensor_1d,test_tensor_3d)))<prec).all()
-
-    test_tensor_10 = SymmetricTensor(rank=1, dim=2)
-    test_tensor_10['i'] = [1,0]
-    test_tensor_11 = SymmetricTensor(rank=1, dim=2)
-    test_tensor_11['i'] = [0,1]
-    test_tensor_12 = np.multiply.outer(test_tensor_10,test_tensor_11)
-    assert test_tensor_12[0,0] ==0 and test_tensor_12[1,1] ==0
-    assert test_tensor_12['ij'] == 0.5
-
-
-
-    # %% tags=[]
-    #outer product with tensordot
-    def test_tensordot(tensor_1, tensor_2, prec =1e-10):
-        test_tensor_13 = tensor_1.tensordot(tensor_2, axes =0)
-        assert test_tensor_13.is_equal(np.multiply.outer(tensor_1,tensor_2))
-
-        #Contract over first and last indices:
-        test_tensor_14 =  tensor_1.tensordot(tensor_2, axes =1)
-        dense_tensor_14 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =1 ))
-        assert (abs(test_tensor_14.todense() - dense_tensor_14) <prec).any()
-        test_tensor_141 =  tensor_1.tensordot(tensor_2, axes =(0,1))
-        assert test_tensor_14.is_equal(test_tensor_141, prec = prec)
-
-        #Contract over two first and last indices:
-        test_tensor_15 =  tensor_1.tensordot(tensor_2, axes =2)
-        dense_tensor_15 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =2 ))
-        if isinstance(test_tensor_15, SymmetricTensor):
-            assert (abs(test_tensor_15.todense() - dense_tensor_15) <prec).all()
-        else:
-            assert test_tensor_15 == dense_tensor_15
-
-        if tensor_1.rank >2 and tensor_2.rank >2:
-            test_tensor_16 =  tensor_1.tensordot(tensor_2, axes =((0,1,2),(0,1,2)))
-            dense_tensor_16 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(0,1,2)) ))
-            dense_tensor_161 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,1,0)) ))
-            dense_tensor_162 = symmetrize(np.tensordot(tensor_1.todense(),
-                                                  tensor_2.todense(),
-                                                  axes =((0,1,2),(2,0,1)) ))
-            assert (abs(test_tensor_16.todense() - dense_tensor_16) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_161) <prec).all()
-            assert (abs(test_tensor_16.todense() - dense_tensor_162) <prec).all()
-
-    for A in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-        for B in [test_tensor_1, test_tensor_2, test_tensor_3, test_tensor_4,test_tensor_5,test_tensor_6, test_tensor_7, test_tensor_8]:
-            if A.rank +B.rank <= 8: #otherwise we can't convert to dense
-                test_tensordot(A,B)
-
-
+# ## Contraction along all indices with matrix
 
 # %% [markdown]
 # ### Contraction with matrix along all indices
 
 # %%
 if __name__ == "__main__":
+    d = 3
+    r = 2 
+    A = two_comp_test_tensor(d,r)
+    W = torch.randn(size=(3,3))
+    B = A.contract_all_indices_with_matrix(W).todense().numpy()
+    assert np.isclose(B, symmetrize(torch.einsum('ab, ai,bj -> ij', A.todense(), W,W).numpy())).all()
+    r = 3
+    A = two_comp_test_tensor(d,r)
+    W = torch.randn(size=(3,3))
+    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
+    
+    r = 2
+    A = two_factor_test_tensor(d,r, q = 1)
+    W = torch.randn(size=(3,3))
+    B = A.contract_all_indices_with_matrix(W).todense().numpy()
+    assert np.isclose(B, symmetrize(torch.einsum('ab, ai,bj -> ij', A.todense(), W,W).numpy())).all()
+    r = 3
+    A = two_factor_test_tensor(d,r, q = 1)
+    W = torch.randn(size=(3,3))
+    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
 
-    A = SymmetricTensor(rank = 3, dim=3)
-    A[0,0,0] =1
-    A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-    A[1,1,1] =-0.3
-    A[0,1,1] = 13
-    A[2,1,1] = -6
-    W = np.random.rand(3,3)
-    W1 = np.random.rand(3,3)
-    W2 = np.random.rand(3,3)
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W2).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W2,W2,W2))).all()
-
-    B = SymmetricTensor(rank = 4, dim =4)
-    B['iiii'] = np.random.rand(4)
-    B['ijkl'] =12
-    B['iijj'] = np.random.rand(6)
-    B['ijkk'] =-0.5
-    W = np.random.rand(4,4)
-    C = B.contract_all_indices_with_matrix(W)
-    W1 = np.random.rand(4,4)
-    W2 = np.random.rand(4,4)
-    assert np.isclose(C.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W,W,W,W))).all()
-    assert np.isclose(C.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W1,W1,W1,W1))).all()
-    assert np.isclose(C.contract_all_indices_with_matrix(W2).todense(), symmetrize(np.einsum('abcd, ai,bj,ck, dl -> ijkl', C.todense(), W2,W2,W2,W2))).all()
-
-
-# %% [markdown]
-# ### Contraction with list of SymmetricTensors
-
-# %%
-if __name__=="__main__":
-    dim = 4
-    for dim in [2,3,4,5]: #not tpo high dimensionality, because dense tensor operations
-        test_tensor = SymmetricTensor(rank =3, dim = dim)
-        test_tensor['iii'] = np.random.rand(dim)
-        test_tensor['ijk'] = np.random.rand(int(dim*(dim-1)*(dim-2)/6))
-        test_tensor['iij'] = np.random.rand(int(dim*(dim-1)))
-
-        tensor_list = []
-        chi_dense = np.zeros( (dim,)*3)
-        def get_random_symtensor_rank2(dim):
-            tensor = SymmetricTensor(rank=2, dim =dim)
-            tensor['ii'] = np.random.rand(dim)
-            tensor['ij'] = np.random.rand(int((dim**2 -dim)/2))
-            return tensor
-        for i in range(dim):
-            random_tensor = get_random_symtensor_rank2(dim)
-            tensor_list += [random_tensor]
-            chi_dense[i,:,:] = random_tensor.todense()
-
-        contract_1 = test_tensor.contract_tensor_list( tensor_list, n_times =1, rule ='all')
-        contract_2 = test_tensor.contract_tensor_list( tensor_list, n_times =2, rule ='all')
-
-        assert  np.isclose(contract_1.todense(), symmetrize(np.einsum('ija, akl -> ijkl', test_tensor.todense(), chi_dense))).all()
-        assert  np.isclose(contract_2.todense(), symmetrize(np.einsum('iab, ajk, blm -> ijklm', test_tensor.todense(), chi_dense,chi_dense))).all()
-
-# %% [markdown]
-# ### Contraction with vector
-
-# %%
-if __name__ == "__main__":
-    A = SymmetricTensor(rank = 3, dim=3)
-    A[0,0,0] =1
-    A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-    x = np.random.rand(3)
-    x1 = np.random.rand(3)
-    x2 = np.zeros(3)
-    assert np.isclose(A.contract_all_indices_with_vector(x), np.einsum('abc, a,b,c -> ', A.todense(), x,x,x))
-    assert np.isclose(A.contract_all_indices_with_vector(x1), np.einsum('abc, a,b,c -> ', A.todense(), x1,x1,x1))
-    #assert np.isclose(A.contract_all_indices_with_vector(x2), 0)
-
-
-# %%
-if __name__ == "__main__":
-    print(A.contract_all_indices_with_vector(x2))
-
-# %% [markdown]
-# ## Timings
-
-# %% [markdown]
-# ### Slicing
-# Some tests to see where slowness could come from:
-
-# %%
-if __name__=="__main__":
-    TimeThis.on= True
-    with TimeThis("check slicing speed"):
-        D = A[0]
-
-
-# %% [markdown]
-# ### Outer product:
-
-# %%
-if __name__=="__main__":
-    for rank in [3]:
-        for dim in [50]:
-            vect = SymmetricTensor(rank=1, dim=dim)
-            vect['i'] = np.random.rand(dim)
-            print('rank = ', rank)
-            print('dim = ', dim)
-            with TimeThis('pos_dict_creation'):
-                x = pos_dict[rank,dim]
-            with TimeThis('outer product'):
-                # vect x vect x vect ... x vect
-                A = vect.outer_product([vect,]*(rank-1))
-
-# %% [markdown]
-# ### Contractions
-
-    # %%
-    A = SymmetricTensor(rank = 3, dim=3)
-
-    A[0,0,0] =1
-    A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-
-    W = np.random.rand(3,3)
-    with TimeThis('permcls_indep_iter_repindex'):
-        li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
-    W1 = np.random.rand(3,3)
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(A.contract_all_indices_with_matrix(W1).todense(), symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
