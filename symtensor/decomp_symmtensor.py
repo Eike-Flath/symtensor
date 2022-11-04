@@ -232,7 +232,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         E.G if multiplicities = (2,2), have
         AABB ABAB BBAA ABBA BAAB BABA = 6 = binom(4,2)
         possibilities. """
-        if self.num_decomp_factors==1: 
+        if self.num_indep_factors==1: 
             return 1
         else: 
             for i,m_ in enumerate(self.multiplicities): 
@@ -245,16 +245,16 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             return num_arrangements_
     
     @property
-    def num_decomp_factors(self): 
+    def num_indep_factors(self): 
         """
         Quantifies how many different vectors appear in the outer products.
         E.g. 
         T = v\otimes w
         T' = v\otimes w \otimes w
-        both have num_decomp_factors = 2
+        both have num_indep_factors = 2
         But
         Q = = v\otimes w \otimes u
-        has num_decomp_factors = 3. 
+        has num_indep_factors = 3. 
         """
         if self.multiplicities is None: 
             raise ValueError("multiplicities unspecified")
@@ -364,7 +364,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         if self.rank > 26: 
             raise NotImplementedError
         #construct outer products with einsum
-        if self.num_decomp_factors == 1: 
+        if self.num_indep_factors == 1: 
             if self.rank == 1: 
                 return sum(self.weights[i]*self.factors[i,:] for i in range(self.num_factors))
             else: 
@@ -374,7 +374,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                         outer_prod = torch.tensordot(outer_prod,self.factors[i,:], dims =0)
                     dense_tensor += self.weights[i]* outer_prod
             return dense_tensor
-        elif self.num_decomp_factors == 2:
+        elif self.num_indep_factors == 2:
             for i,j in itertools.product(range(self.num_factors),repeat =2):
                 #symmetrize outer products:
                 #loop over arrangements of factors in outer product
@@ -387,7 +387,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                         outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
                     dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
             return dense_tensor
-        elif self.num_decomp_factors == 3:
+        elif self.num_indep_factors == 3:
             for i,j,k in itertools.product(range(self.num_factors),repeat =3):
                 #symmetrize outer products:
                 #loop over arrangements of factors in outer product
@@ -401,7 +401,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                         outer_prod = torch.tensordot(outer_prod,self.factors[indices[m],:], dims =0)
                     dense_tensor += self.weights[i,j,k]*outer_prod/self.num_arrangements
             return dense_tensor
-        elif self.num_decomp_factors == 4:
+        elif self.num_indep_factors == 4:
             for i,j,k,l in itertools.product(range(self.num_factors),repeat =4):
                 #symmetrize outer products:
                 #loop over arrangements of factors in outer product
@@ -437,10 +437,10 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """
         if not len(x) == self.dim: 
             raiseValueError("dimension must match Tensor dimension")
-        num_decomp_factors = self.num_decomp_factors
+        num_indep_factors = self.num_indep_factors
         factors_times_x = torch.einsum('ij,j-> i', self.factors, x)
         out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
-                  for index in itertools.product(range(self.num_factors), repeat =  self.num_decomp_factors))
+                  for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
         return out
                         
 
@@ -569,21 +569,21 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
     out.factors = torch.cat((self.factors , other.factors ), 0) 
     out.multiplicities = self.multiplicities
     #fully decomposed tensor
-    if self.num_decomp_factors==1:
+    if self.num_indep_factors==1:
         out.weights =  torch.cat((self.weights, other.weights), 0) 
         return out
     #partially decomposed tensor
-    if self.num_decomp_factors==2:
+    if self.num_indep_factors==2:
         out.weights = torch.zeros(out.num_factors,out.num_factors)
         out.weights[:self.num_factors,:self.num_factors] = self.weights
         out.weights[self.num_factors:,self.num_factors:] = other.weights
         return out
-    if self.num_decomp_factors==3:
+    if self.num_indep_factors==3:
         out.weights = torch.zeros(out.num_factors,out.num_factors,out.num_factors)
         out.weights[:self.num_factors,:self.num_factors,:self.num_factors] = self.weights
         out.weights[self.num_factors:,self.num_factors:,self.num_factors:] = other.weights
         return out
-    if self.num_decomp_factors==4:
+    if self.num_indep_factors==4:
         out.weights = torch.zeros(out.num_factors,out.num_factors,out.num_factors,out.num_factors)
         out.weights[:self.num_factors,:self.num_factors,:self.num_factors,:self.num_factors] = self.weights
         out.weights[self.num_factors:,self.num_factors:,self.num_factors:,self.num_factors:] = other.weights
@@ -707,17 +707,17 @@ def symmetric_outer(self,other):
         raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
     if not self.dim == other.dim: 
         raise ValueError("Tensor dimension must match.")
-    if not self.num_decomp_factors<=3:
+    if not self.num_indep_factors<=3:
         raise NotImplementedError
-    if not other.num_decomp_factors+self.num_decomp_factors<=4:
+    if not other.num_indep_factors+self.num_indep_factors<=4:
         raise NotImplementedError
-    if other.num_decomp_factors> self.num_decomp_factors: 
+    if other.num_indep_factors> self.num_indep_factors: 
         return np.outer(other, self)
     
     out = DecompSymmetricTensor(rank = self.rank+other.rank, dim = self.dim)
     out.factors = torch.cat((self.factors , other.factors ), 0) 
     #fully decomposed 
-    if self.num_decomp_factors ==1 and other.num_decomp_factors==1:
+    if self.num_indep_factors ==1 and other.num_indep_factors==1:
         #higher multiplicities come first
         if other.multiplicities[0] > self.multiplicities[0]: 
             return np.outer(other,self)
@@ -725,17 +725,17 @@ def symmetric_outer(self,other):
         out.weights = torch.zeros((out.num_factors,)*2) 
         out.weights[:self.num_factors,self.num_factors:] = torch.einsum('m,n->mn', self.weights, other.weights)
     #bipartite and fully decomposed
-    elif self.num_decomp_factors == 2 and other.num_decomp_factors==1:
+    elif self.num_indep_factors == 2 and other.num_indep_factors==1:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], other.multiplicities[0])
         out.weights = torch.zeros((out.num_factors,)*3) 
         out.weights[:self.num_factors,:self.num_factors,self.num_factors:] = torch.einsum('mn,o->mno', self.weights, other.weights)
     #tripartite and fully decomposed
-    elif self.num_decomp_factors == 3 and other.num_decomp_factors==1:
+    elif self.num_indep_factors == 3 and other.num_indep_factors==1:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], self.multiplicities[2], other.multiplicities[0])
         out.weights = torch.zeros((out.num_factors,)*4) 
         out.weights[:self.num_factors,:self.num_factors,:self.num_factors,self.num_factors:] = torch.einsum('mno,p->mnop', self.weights, other.weights)
     #bipartite and bipartite decomposed
-    elif self.num_decomp_factors == 2 and other.num_decomp_factors==2:
+    elif self.num_indep_factors == 2 and other.num_indep_factors==2:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], other.multiplicities[0], other.multiplicities[1])
         out.weights = torch.zeros((out.num_factors,)*4) 
         out.weights[:self.num_factors,:self.num_factors,self.num_factors:,self.num_factors:] = torch.einsum('mn,op->mnop', self.weights, other.weights)
@@ -816,9 +816,9 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
         raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
     if not self.dim == other.dim: 
         raise ValueError("Tensor dimension must match.")
-    if not self.num_decomp_factors==1:
+    if not self.num_indep_factors==1:
         raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
-    if not other.num_decomp_factors==1:
+    if not other.num_indep_factors==1:
         raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
     if other.multiplicities[0] > self.multiplicities[0]: 
         return np.tensordot(other,self, axes = axes)
@@ -956,7 +956,7 @@ if __name__ == "__main__":
     def two_comp_test_tensor(d,r):
         A = DecompSymmetricTensor(rank=r, dim=d)
         A.weights = torch.randn(size =(2,))
-        A.factors =  torch.randn(size =(2,d))
+        A.factors =  torch.randn(size =(2,d))+1
         A.multiplicities = (r,)
         return A
     
@@ -991,8 +991,6 @@ if __name__ == "__main__":
     # %%
     A = DecompSymmetricTensor(rank = 3, dim =5)
     assert all(A[index] == 0 for index in A.indep_iter_repindex())
-    #assert len(A['iii']) == 5
-    #assert A['iii'] == [0,]*5
     
     d = 2
     r = 1
@@ -1430,7 +1428,6 @@ if __name__ == "__main__":
     for r in range(2,4): 
         tensor_1 = two_comp_test_tensor(d,r)
         for r_1 in range(2,4):
-            print(r,r_1)
             tensor_2 = two_comp_test_tensor(d,r_1)
             test_tensor_13 = np.tensordot(tensor_1, tensor_2, axes=0)
             assert np.allclose(test_tensor_13, np.multiply.outer(tensor_1,tensor_2))
