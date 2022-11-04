@@ -721,7 +721,8 @@ def symmetric_multiply_outer(self,other):
 #
 # ## Tensordot
 #
-# ### Single contraction for fully decomposed tensors
+# ### Single contraction 
+# #### for fully decomposed tensors
 # Suppose we have 
 #
 # $$
@@ -736,7 +737,7 @@ def symmetric_multiply_outer(self,other):
 #
 # Now we want to contract to 
 # $$
-# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} V_{j,i_{tau},...i_{\tau+\nu-2}} \\
+# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} U_{j,i_{tau},...i_{\tau+\nu-2}} \\
 # = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
 # = \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
 # $$
@@ -747,8 +748,9 @@ def symmetric_multiply_outer(self,other):
 # $$
 # \Lambda^{1:M, M+1:M+N} = \nu
 # $$
-# With all other entries of $\Lambda =0$. 
-#
+# With all other entries of $\Lambda =0$.
+
+# %% [markdown]
 # ### Double contraction for fully decomposed tensors
 #
 # As above, but we evaluate
@@ -1393,7 +1395,7 @@ if __name__ == "__main__":
 #
 
     # %%
-    d = 4
+    d = 2
     for r in range(2,4): 
         tensor_1 = two_comp_test_tensor(d,r)
         for r_1 in range(2,4):
