@@ -333,6 +333,74 @@ def twoway_partitions_pairwise_iterator(lst: Sequence[Any], size1: int, size2: i
 
 
 # %%
+def nway_partitions_iterator(lst: Sequence[Any], sizes: Tuple[int], num_partitions: bool = True
+    ) -> Tuple[Iterable[Sequence], Iterable[Sequence], int]:
+    """
+    Return all unique n-way partitions of `lst`, where partitions have
+    sizes as in `sizes`. All elements in `lst` are treated as distinct.
+
+    Both the order in which sublist pairs are returned, and the order within
+    sublists, is undefined.
+
+    .. Note:: The sum of `sizes` must equal the length of `lst`.
+    .. Note:: Works only up to n = 4.
+
+    Returns
+    -------
+    - Generator: n-pairs of (sublists 1,..., sublist n)
+    - int: The number of partitions if num_partitions is True
+    """
+    assert sum(sizes) == len(lst), 'Sizes must sum to length of `lst`.'
+    n = len(sizes)
+    if n>4: 
+        raise NotImplementedError('decompositions with more than four different components not available')
+    else:
+        if n==2: 
+            return twoway_partitions_pairwise_iterator(lst, sizes[0], sizes[1], num_partitions = num_partitions)
+        elif n> 2: 
+            lsts_1 = []
+            lsts_2 = []
+            lsts_3 = []
+            lsts_4 = []
+            
+            arr = np.array(lst)  # To allow fancy indexing
+            indices = set(range(len(lst)))
+            #iteratively construct subsets
+            for indcs_1 in itertools.combinations(indices, sizes[0]):
+                indcs_1_set = set(indcs_1)
+                indices_23_set = indices - indcs_1_set 
+                for indcs_2 in itertools.combinations(list(indices_23_set), sizes[1]):
+                    if n ==3:
+                        indcs_2_set = set(indcs_2)
+                        indcs_3_set = indices_23_set - indcs_2_set
+                        lsts_1 += [arr[list(indcs_1_set)]]
+                        lsts_2 += [arr[list(indcs_2_set)]]
+                        lsts_3 += [arr[list(indcs_3_set)]]
+                    else:
+                        indcs_2_set = set(indcs_2)
+                        indcs_34_set = indices_23_set - indcs_2_set
+                        assert n==4
+                        for indcs_3 in itertools.combinations(list(indcs_34_set), sizes[2]):
+                            indcs_3_set = set(indcs_3)
+                            indcs_4_set = indcs_34_set - indcs_3_set
+                            lsts_1 += [arr[list(indcs_1_set)]]
+                            lsts_2 += [arr[list(indcs_2_set)]]
+                            lsts_3 += [arr[list(indcs_3_set)]]
+                            lsts_4 += [arr[list(indcs_4_set)]]
+        if num_partitions:
+            if n==3:
+                return zip(lsts_1, lsts_2, lsts_3), len(lsts_1)
+            else: 
+                return zip(lsts_1, lsts_2, lsts_3,lsts_4), len(lsts_1)
+        else:
+            if n==3:
+                return zip(lsts_1, lsts_2, lsts_3)
+            else: 
+                return zip(lsts_1, lsts_2, lsts_3,lsts_4)
+    
+    
+
+# %%
 if exenv in {"notebook", "jbook"}:
     display(timeit("twoway_partitions((5, 5, 5, 10, 10, 3, 2, 1), 4, 4)", number=100000))
 

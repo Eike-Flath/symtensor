@@ -48,6 +48,7 @@ import torch
 from pydantic import BaseModel
 from collections_extended import bijection
 from scipy.special import binom
+import itertools
 
 from typing import Optional, ClassVar, Union
 from scityping import Number
@@ -225,6 +226,25 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """Weight of each component"""
         self._multiplicities = value
     
+    @property
+    def num_arrangements(self): 
+        """ number of ways to arrange components in outer product: 
+        E.G if multiplicities = (2,2), have
+        AABB ABAB BBAA ABBA BAAB BABA = 6 = binom(4,2)
+        possibilities. """
+        if len(self.multiplicities)==1: 
+            return 1
+        else: 
+            for i,m_ in enumerate(self.multiplicities): 
+                if i ==0: 
+                    continue
+                if i == 1:
+                    num_arrangements_ = binom(self.rank, self.multiplicities[i])
+                elif i>1:
+                    num_arrangements_ *= binom(self.rank - sum(self.multiplicities[1:i]), self.multiplicities[i])
+            return num_arrangements_
+                
+    
     def copy(self):
         """Copy"""
         other = DecompSymmetricTensor(rank = self.rank, dim=self.dim)
@@ -263,16 +283,32 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                             for i in range(self.num_components)) 
             elif len(self._multiplicities) == 2:
                 # do symmetrization step
-                indices_1, indices_2, num_partitions = \
-                    utils.twoway_partitions(key, self._multiplicities[0],
-                                            self._multiplicities[1], num_partitions = True)
                 return sum( self._weights[i,j] \
                            *sum(torch.prod(torch.tensor([self._components[i,j_1] for j_1 in index_1]))\
                                 *torch.prod(torch.tensor([self._components[j,j_2] for j_2 in index_2]))\
                                 for index_1, index_2 in \
                                 utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
                                                         self._multiplicities[1], num_partitions = False))
-                            for i,j in itertools.product(range(self.num_components),repeat =2))/num_partitions
+                            for i,j in itertools.product(range(self.num_components),repeat =2))/self.num_arrangements
+            elif len(self._multiplicities) == 3:
+                # do symmetrization step
+                return sum( self._weights[i,j,k] \
+                           *sum(torch.prod(torch.tensor([self._components[i,j_1] for j_1 in index_1]))\
+                                *torch.prod(torch.tensor([self._components[j,j_2] for j_2 in index_2]))\
+                                *torch.prod(torch.tensor([self._components[k,j_3] for j_3 in index_3]))\
+                                for index_1, index_2, index_3 in \
+                                utils.nway_partitions_iterator(key, self._multiplicities, num_partitions = False))
+                            for i,j,k in itertools.product(range(self.num_components),repeat =3))/self.num_arrangements
+            elif len(self._multiplicities) == 4:
+                # do symmetrization step
+                return sum( self._weights[i,j,k,l] \
+                           *sum(torch.prod(torch.tensor([self._components[i,j_1] for j_1 in index_1]))\
+                                *torch.prod(torch.tensor([self._components[j,j_2] for j_2 in index_2]))\
+                                *torch.prod(torch.tensor([self._components[k,j_3] for j_3 in index_3]))\
+                                *torch.prod(torch.tensor([self._components[l,j_3] for j_4 in index_4]))\
+                                for index_1, index_2, index_3, index_4 in \
+                                utils.nway_partitions_iterator(key, self._multiplicities, num_partitions = False))
+                            for i,j,k,l in itertools.product(range(self.num_components),repeat =4))/self.num_arrangements
             else: 
                 raise NotImplementedError
         else:
@@ -321,28 +357,46 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                     dense_tensor += self.weights[i]* outer_prod
             return dense_tensor
         elif len(self.multiplicities) == 2:
-            for i in range(self.num_components): 
-                for j in range(self.num_components):
-                    #symmetrize outer products
-                    if i != j: 
-                        #loop over arrangements of components in outer product
-                        for k in torch.combinations(torch.arange(self.rank), r= self.multiplicities[1], with_replacement = False): 
-                            indices = [i,]*self.rank
-                            if self.multiplicities[1]>1:
-                                for k_ in k:
-                                    indices[k_] = j
-                            else: 
-                                indices[k] = j
-                            outer_prod = self.components[indices[0],:]
-                            for l in range(self.rank-1):
-                                outer_prod = torch.tensordot(outer_prod,self.components[indices[l+1],:], dims =0)
-                            dense_tensor += self.weights[i,j]*outer_prod/binom(self.rank, self.multiplicities[1])
-                    else: 
-                        # all components equal, arrangement does not matter
-                        outer_prod = self.components[i,:]
-                        for l in range(self.rank-1):
-                            outer_prod = torch.tensordot(outer_prod,self.components[i,:], dims =0)
-                        dense_tensor += self.weights[i,i]* outer_prod
+            for i,j in itertools.product(range(self.num_components),repeat =2):
+                #symmetrize outer products:
+                #loop over arrangements of components in outer product
+                for pos_1, pos_2 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                    indices = np.array([i,]*self.rank)
+                    #put jth component in pos_2th position etc.
+                    indices[pos_2] = j
+                    outer_prod = self.components[indices[0],:]
+                    for m in range(self.rank-1):
+                        outer_prod = torch.tensordot(outer_prod,self.components[indices[m+1],:], dims =0)
+                    dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
+            return dense_tensor
+        elif len(self.multiplicities) == 3:
+            for i,j,k in itertools.product(range(self.num_components),repeat =3):
+                #symmetrize outer products:
+                #loop over arrangements of components in outer product
+                for pos_1, pos_2, pos_3 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                    indices = np.array([i,]*self.rank)
+                    #put jth component in pos_2th position etc.
+                    indices[pos_2] = j
+                    indices[pos_3] = k
+                    outer_prod = self.components[indices[0],:]
+                    for m in range(1,self.rank):
+                        outer_prod = torch.tensordot(outer_prod,self.components[indices[m],:], dims =0)
+                    dense_tensor += self.weights[i,j,k]*outer_prod/self.num_arrangements
+            return dense_tensor
+        elif len(self.multiplicities) == 4:
+            for i,j,k,l in itertools.product(range(self.num_components),repeat =4):
+                #symmetrize outer products:
+                #loop over arrangements of components in outer product
+                for pos_1, pos_2, pos_3, pos_4 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                    indices = np.array([i,]*self.rank)
+                    #put jth component in pos_2th position etc.
+                    indices[pos_2] = j
+                    indices[pos_3] = k
+                    indices[pos_4] = l
+                    outer_prod = self.components[indices[0],:]
+                    for m in range(self.rank-1):
+                        outer_prod = torch.tensordot(outer_prod,self.components[indices[m+1],:], dims =0)
+                    dense_tensor += self.weights[i,j,k,l]*outer_prod/self.num_arrangements
             return dense_tensor
         else:
             raise NotImplementedError
@@ -727,11 +781,20 @@ if __name__ == "__main__":
         return A
     
     def two_factor_test_tensor(d,r, q = 1):
-        assert q<d
+        assert q<r
         A = DecompSymmetricTensor(rank=r, dim=d)
         A.weights = torch.randn(size =(2,2))
         A.components =  torch.randn(size =(2,d))
         A.multiplicities = (r-q,q)
+        return A
+    
+    def three_factor_test_tensor(d,r, q = 1):
+        assert r>=3
+        assert 2*q<r
+        A = DecompSymmetricTensor(rank=r, dim=d)
+        A.weights = torch.randn(size =(2,2,2))
+        A.components =  torch.randn(size =(4,d))
+        A.multiplicities = (r-2*q,q,q)
         return A
 
 
@@ -866,6 +929,46 @@ if __name__ == "__main__":
                                                 + B_1.components[0,10]*B_1.components[0,11]*B_1.components[1,0]))/3 )
 
 # %% [markdown]
+# Test indexing for tensors of shape 
+# $$
+# T = \sum_{m} \lambda^{m,n,o} \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}} \otimes \underbrace{t^o \otimes \dots t^o}_{l \text{ times}}
+# $$
+# with $u^m, v^m, t^o$ vectors. 
+
+    # %%
+    d = 3
+    r = 3
+    q = 1
+    A_2 = DecompSymmetricTensor(rank=r, dim=d)
+    A_2.weights = torch.zeros((2,2,2))
+    A_2.weights[0,0,0] = 1
+    A_2.weights[0,1,1] = 2
+    A_2.components =  torch.randn(size =(2,d))
+    A_2.multiplicities = (r-2*q,q,q)
+    assert np.isclose((A_2.components[0,0]**3+2*A_2.components[1,0]**2*A_2.components[0,0]), A_2[0,0,0])
+    assert np.isclose(A_2.components[0,1]**3+2*A_2.components[1,1]**2*A_2.components[0,1], A_2[1,1,1])
+    assert np.isclose(A_2[1,0,0], A_2[0,0,1])
+    assert np.isclose(A_2.components[0,1]**2*A_2.components[0,0] 
+                      +2/3.0*(A_2.components[1,1]**2*A_2.components[0,0]
+                              +2*A_2.components[1,0]*A_2.components[1,1]*A_2.components[0,1]) , A_2[1,1,0])
+    
+    d = 3
+    r = 4
+    A_2 = DecompSymmetricTensor(rank=r, dim=d)
+    A_2.weights = torch.zeros((2,2,2))
+    A_2.weights[0,0,0] = 1
+    A_2.weights[0,1,1] = 2
+    A_2.components =  torch.randn(size =(2,d))
+    A_2.multiplicities = (2,1,1)
+    assert np.isclose((A_2.components[0,0]**4+2*A_2.components[1,0]**2*A_2.components[0,0]**2), A_2[0,0,0,0])
+    assert np.isclose(A_2.components[0,1]**4+2*A_2.components[1,1]**2*A_2.components[0,1]**2, A_2[1,1,1,1])
+    assert np.isclose(A_2[1,0,0,0], A_2[0,0,1,0])
+    # ABAB BABA BAAB ABBA AABB BBAA
+    assert np.isclose(A_2.components[0,1]**2*A_2.components[0,0]**2
+                      +2/6.0*(A_2.components[0,0]**2*A_2.components[1,1]**2+A_2.components[0,1]**2*A_2.components[1,0]**2
+                              +4*A_2.components[1,0]*A_2.components[1,1]*A_2.components[0,1]*A_2.components[0,0]) , A_2[1,1,0,0])
+
+# %% [markdown]
 # ## Shape, size, dtype
 
     # %%
@@ -897,6 +1000,7 @@ if __name__ == "__main__":
 
 # %%
 if __name__ == "__main__": 
+    # vector 
     A = DecompSymmetricTensor(rank = 1, dim =10)     
     weights = [0,1]
     components =  torch.randn(size =(2,10))
@@ -906,6 +1010,7 @@ if __name__ == "__main__":
 
     assert (A.todense()==A.components[1,:]).all()
     
+    #third order fully decomposed: AAA
     B = DecompSymmetricTensor(rank = 3, dim =3)   
     weights = [0.5,1, 0.01]
     components =  torch.randn(size =(3,3))
@@ -918,6 +1023,7 @@ if __name__ == "__main__":
              +0.01*torch.tensordot(components[2,:],torch.outer(components[2,:],components[2,:]),dims=0) 
     assert torch.allclose(B.todense(),B_dense)
     
+    #third order partially decomposed: Two "factors" AAB
     C = DecompSymmetricTensor(rank = 3, dim =3)   
     weights = torch.Tensor([[0.5,0.5],[0,0.1]])
     components =  torch.randn(size =(2,3))
@@ -947,7 +1053,40 @@ if __name__ == "__main__":
                            
     assert torch.allclose(D.todense(),D_dense)
     
-
+    #third order partially decomposed : Three factors AABC   
+    C = DecompSymmetricTensor(rank = 4, dim =3)   
+    weights = torch.zeros(3,3,3)
+    weights[0,1,2] = 1
+    weights[0,0,0] = 2.0
+    weights[1,1,2] = 0.1
+    components =  torch.randn(size =(3,3))
+    C.weights = weights
+    C.components = components 
+    C.multiplicities =  (2,1,1)
+    
+    C_dense = ( torch.einsum('i,j,k,l -> ijkl', components[0,:], components[0,:],components[1,:],components[2,:])
+               +2*torch.einsum('i,j,k,l -> ijkl', components[0,:], components[0,:],components[0,:],components[0,:])
+               +0.1*torch.einsum('i,j,k,l -> ijkl', components[1,:], components[1,:],components[1,:],components[2,:]))
+    sym_C_dense = utils.symmetrize(C_dense.numpy())
+    assert np.allclose(C.todense().numpy(),sym_C_dense )
+    
+    #fourth order partially decomposed : Four factors ABCD   
+    C = DecompSymmetricTensor(rank = 4, dim =3)   
+    weights = torch.zeros(3,3,3,3)
+    weights[0,0,1,2] = 1
+    weights[0,0,0,0] = 2.0
+    weights[1,1,1,2] = 0.1
+    components =  torch.randn(size =(3,3))
+    C.weights = weights
+    C.components = components 
+    C.multiplicities =  (1,1,1,1)
+    
+    C_dense = ( torch.einsum('i,j,k,l -> ijk', components[0,:], components[0,:],components[1,:],components[2,:])
+               +2*torch.einsum('i,j,k,l -> ijk', components[0,:], components[0,:],components[0,:],components[0,:])
+               +0.1*torch.einsum('i,j,k,l -> ijk', components[1,:], components[1,:],components[1,:],components[2,:]))
+    sym_C_dense = utils.symmetrize(C_dense.numpy())
+    assert np.allclose(C.todense().numpy(),sym_C_dense )
+    
 
 # %% [markdown]
 # ### Copying
