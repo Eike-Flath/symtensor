@@ -709,15 +709,15 @@ def symmetric_outer(self,other):
         raise ValueError("Tensor dimension must match.")
     if not self.num_decomp_factors<=3:
         raise NotImplementedError
-    if not len(other.multiplicities)+self.num_decomp_factors<=4:
+    if not other.num_decomp_factors+self.num_decomp_factors<=4:
         raise NotImplementedError
-    if len(other.multiplicities)> self.num_decomp_factors: 
+    if other.num_decomp_factors> self.num_decomp_factors: 
         return np.outer(other, self)
     
     out = DecompSymmetricTensor(rank = self.rank+other.rank, dim = self.dim)
     out.components = torch.cat((self.components , other.components ), 0) 
     #fully decomposed 
-    if self.num_decomp_factors ==1 and len(other.multiplicities)==1:
+    if self.num_decomp_factors ==1 and other.num_decomp_factors==1:
         #higher multiplicities come first
         if other.multiplicities[0] > self.multiplicities[0]: 
             return np.outer(other,self)
@@ -725,17 +725,17 @@ def symmetric_outer(self,other):
         out.weights = torch.zeros((out.num_components,)*2) 
         out.weights[:self.num_components,self.num_components:] = torch.einsum('m,n->mn', self.weights, other.weights)
     #bipartite and fully decomposed
-    elif self.num_decomp_factors == 2 and len(other.multiplicities)==1:
+    elif self.num_decomp_factors == 2 and other.num_decomp_factors==1:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], other.multiplicities[0])
         out.weights = torch.zeros((out.num_components,)*3) 
         out.weights[:self.num_components,:self.num_components,self.num_components:] = torch.einsum('mn,o->mno', self.weights, other.weights)
     #tripartite and fully decomposed
-    elif self.num_decomp_factors == 3 and len(other.multiplicities)==1:
+    elif self.num_decomp_factors == 3 and other.num_decomp_factors==1:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], self.multiplicities[2], other.multiplicities[0])
         out.weights = torch.zeros((out.num_components,)*4) 
         out.weights[:self.num_components,:self.num_components,:self.num_components,self.num_components:] = torch.einsum('mno,p->mnop', self.weights, other.weights)
     #bipartite and bipartite decomposed
-    elif self.num_decomp_factors == 2 and len(other.multiplicities)==2:
+    elif self.num_decomp_factors == 2 and other.num_decomp_factors==2:
         out.multiplicities = (self.multiplicities[0], self.multiplicities[1], other.multiplicities[0], other.multiplicities[1])
         out.weights = torch.zeros((out.num_components,)*4) 
         out.weights[:self.num_components,:self.num_components,self.num_components:,self.num_components:] = torch.einsum('mn,op->mnop', self.weights, other.weights)
@@ -818,7 +818,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
         raise ValueError("Tensor dimension must match.")
     if not self.num_decomp_factors==1:
         raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
-    if not len(other.multiplicities)==1:
+    if not other.num_decomp_factors==1:
         raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
     if other.multiplicities[0] > self.multiplicities[0]: 
         return np.tensordot(other,self, axes = axes)
