@@ -541,10 +541,11 @@ class PermClsSymmetricTensor(SymmetricTensor):
     """
     On creation, defaults to a zero tensor.
     """
-    #rank                 : int
-    #dim                  : int
-    #_dtype                : DType
-    _data                : Dict[Tuple[int], Union[float, Array[float,1]]]
+    #rank       : int
+    #dim        : int
+    #_dtype     : DType
+    data_format : ClassVar[str]="PermCls"
+    _data       : Dict[Tuple[int], Union[float, Array[float,1]]]
 
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Optional[Dict[Union[Tuple[int,...], str],
@@ -699,7 +700,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
             data_dict = {tuple(int(k) for k in re.findall(r"\d+", key_str)): arr
                          for key_str, arr in data.data.items()}
             # Instantiate the expected tensor
-            return SymmetricTensor(rank, dim, data_dict)
+            return PermClsSymmetricTensor(rank, dim, data_dict)
 
     ## Dunder methods ##
 
@@ -773,7 +774,28 @@ class PermClsSymmetricTensor(SymmetricTensor):
             raise KeyError(f"{key}")
 
     def __setitem__(self, key, value):
-        value = np.asarray(value).astype(self.dtype)
+        ## Special, short-circuited branch if `value` is data-aligned ##
+        #  (Skips a potentially costly cast to a dense array)
+        if (  isinstance(value, PermClsSymmetricTensor)
+              and self.data_alignment == value.data_alignment
+              and key == slice(None)  ):
+            for k, v in self._data.items():
+                if isinstance(v, np.ndarray) and v.ndim > 0:
+                    v[:] = self._validate_dataarray(value._data[k])
+                else:
+                    # Scalars need to be overwritten
+                    self._data[k] = self._validate_dataarray(value._data[k])
+            return  # EARLY EXIT
+
+        if isinstance(value, SymmetricTensor):
+            raise NotImplementedError(
+                "For lack of a use case, assignment of SymmetricTensor into "
+                "another SymmetricTensor is only defined when doing a full "
+                "assignment with data-aligned tensors (e.g. A[:] = B).")
+
+        ## Normal generic branch ##
+        #value = np.asarray(value).astype(self.dtype)
+        value = self._validate_dataarray(value)
         if key == slice(None):
             # Special case: we allow replacing the entire data
             dict_value, _, shape = self._validate_data(value)
@@ -853,13 +875,18 @@ class PermClsSymmetricTensor(SymmetricTensor):
         return A
 
     ## Iterators ##
+    # To facilitate comparisons, empty values are standardized: although empty
+    # permutation classes can be equivalently be stored as empty arrays or
+    # scalars of any value, these iterators always return empty arrays
 
     def keys(self):
         return self._data.keys()
     def values(self):
-        return self._data.values()
+        dim = self.dim
+        return [v if len(k) <= dim else np.array([], dtype=self.dtype)
+                for k, v in self._data.items()]
     def items(self):
-        return self._data.items()
+        return [(k, v) for k,v in zip(self.keys(), self.values())]
 
     @property
     def flat(self):

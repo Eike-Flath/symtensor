@@ -20,39 +20,30 @@ import itertools
 import math
 import functools
 from itertools import chain
+import logging
 import numpy as np
 
 from typing import Optional, Union, Any, List, Tuple, Sequence, Iterable, Generator
-from scityping.numpy import Array
-
-# %% tags=["remove-cell", "active-py"]
-if __name__ != "__main__":
-    exenv = "module"
-else:
-    exenv = "script"
-
-# %% tags=["remove-cell", "active-ipynb"]
-# exenv = "jbook"
-
-# %% tags=["skip-execution", "remove-cell", "active-ipynb"]
-# exenv = "notebook"
+from scityping.numpy import Array, DType
 
 # %%
-if exenv in {"notebook", "jbook"}:
-    from mackelab_toolbox.utils import timeit
+logger = logging.getLogger(__name__)
 
-    def get_timeit_kwargs(nops: int) -> dict:
-        ":param:nops: Estimate of the number of operations."
-        kwds = {"number": 100000, "repeat": 7}  # Defaults
-        if nops > 1e12:
-            kwds["number"] = 1; kwds["repeat"] = 1
-        elif nops > 1e11:
-            kwds["number"] = 1; kwds["repeat"] = 3
-        elif nops > 1e10:
-            kwds["number"] = 1
-        elif nops > 1e4:
-            kwds["number"] = 10**(10-math.ceil(math.log10(nops)))  # The 10 inside the power comes from `nops > 1e10` above
-        return kwds
+# %% tags=["active-ipynb"]
+# from mackelab_toolbox.utils import timeit
+#
+# def get_timeit_kwargs(nops: int) -> dict:
+#     ":param:nops: Estimate of the number of operations."
+#     kwds = {"number": 100000, "repeat": 7}  # Defaults
+#     if nops > 1e12:
+#         kwds["number"] = 1; kwds["repeat"] = 1
+#     elif nops > 1e11:
+#         kwds["number"] = 1; kwds["repeat"] = 3
+#     elif nops > 1e10:
+#         kwds["number"] = 1
+#     elif nops > 1e4:
+#         kwds["number"] = 10**(10-math.ceil(math.log10(nops)))  # The 10 inside the power comes from `nops > 1e10` above
+#     return kwds
 
 # %% [markdown]
 # ## Types and metaprogramming
@@ -179,30 +170,28 @@ def make_array_like(like, modules=()):
 # %% [markdown]
 # Test that the `make_array_like` context manager correctly binds custom functions to `asarray`, and cleans up correctly on exit.
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    import pytest
-    from symtensor import DenseSymmetricTensor
-
-    A = DenseSymmetricTensor(rank=2, dim=3)
-    # Context manager works as expected…
-    with make_array_like(DenseSymmetricTensor(0,0), np.core.einsumfunc):
-        assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
-        np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
-        np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
-    # …and returns the module to its clean state on exit…
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-    with pytest.warns(UserWarning):
-        assert type(np.asarray(A)) is np.ndarray
-    # …even when an error is raised within the context.
-    try:
-        with make_array_like(DenseSymmetricTensor(0,0), np.core.einsumfunc):
-            assert "<locals>" in str(np.core.einsumfunc.asanyarray)
-            raise ValueError
-    except ValueError:
-        pass
-    assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
-
+# %% tags=["active-ipynb"]
+# import pytest
+# from symtensor import DenseSymmetricTensor
+#
+# A = DenseSymmetricTensor(rank=2, dim=3)
+# # Context manager works as expected…
+# with make_array_like(DenseSymmetricTensor(0,0), np.core.einsumfunc):
+#     assert "<locals>" in str(np.core.einsumfunc.asanyarray)   # asanyarray has been substituted…
+#     np.einsum('iij', np.arange(8).reshape(2,2,2))  # …and einsum still works
+#     np.asarray(np.arange(3))                       # Plain asarray is untouched and still works
+# # …and returns the module to its clean state on exit…
+# assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
+# with pytest.warns(UserWarning):
+#     assert type(np.asarray(A)) is np.ndarray
+# # …even when an error is raised within the context.
+# try:
+#     with make_array_like(DenseSymmetricTensor(0,0), np.core.einsumfunc):
+#         assert "<locals>" in str(np.core.einsumfunc.asanyarray)
+#         raise ValueError
+# except ValueError:
+#     pass
+# assert "<locals>" not in str(np.core.einsumfunc.asanyarray)
 
 # %% [markdown]
 # ## Combinatorics utilities
@@ -234,15 +223,16 @@ def multinom(n: int, klst: List[int]) -> int:
     return math.prod(math.comb(n, k) for n, k in zip(nlst, klst))
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("multinom(2, (1, 1))", number=100000))
-    display(timeit("multinom(5, (5, 0, 0, 0, 0))", number=100000))
-    display(timeit("multinom(5, (3, 2, 0, 0, 0))", number=100000))
-    display(timeit("multinom(5, (1, 1, 1, 1, 1))", number=100000))
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("multinom(2, (1, 1))", number=100000))
+# display(timeit("multinom(5, (5, 0, 0, 0, 0))", number=100000))
+# display(timeit("multinom(5, (3, 2, 0, 0, 0))", number=100000))
+# display(timeit("multinom(5, (1, 1, 1, 1, 1))", number=100000))
+
+# %% [markdown] tags=["remove-cell"]
 #     5.37 µs ± 49.1 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 #     6.06 µs ± 56.1 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 #     5.39 µs ± 22.7 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
@@ -330,7 +320,14 @@ def twoway_partitions_pairwise_iterator(lst: Sequence[Any], size1: int, size2: i
     else: 
         return zip(lsts_1, lsts_2)
     
+# %% [markdown]
+# #### Timings
 
+# %% tags=["active-ipynb"]
+# display(timeit("twoway_partitions((5, 5, 5, 10, 10, 3, 2, 1), 4, 4)", number=100000))
+
+# %% [markdown]
+#     11.1 µs ± 82.5 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
 # %%
 def nway_partitions_iterator(lst: Sequence[Any], sizes: Tuple[int], num_partitions: bool = True
@@ -400,58 +397,80 @@ def nway_partitions_iterator(lst: Sequence[Any], sizes: Tuple[int], num_partitio
     
     
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("twoway_partitions((5, 5, 5, 10, 10, 3, 2, 1), 4, 4)", number=100000))
-
-
-# %% [markdown]
-#     11.1 µs ± 82.5 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-
 # %% [markdown]
 # ## Array utilities
 
 # %% [markdown]
+# ### `get_np_dtype` - Deprecate ?
+#
+# A more permissive form of `np.dtype(<type>)`. Mostly a workaround for Torch’s dtypes, which annoyingly don’t support conversion to NumPy dtypes.
+#
+# This approach of writing "universal" functions might be fundamentally flawed: if we think about supporting Torch, TensorFlow, Jax, etc. arrays, they become increasingly complex/fragile/impossible.
+#
+# Probably better to use dispatch mechanisms, either `__array_function__` or `functools.singledispatch`.
+
+# %% [markdown]
+#     def get_np_dtype(dtype: Union[str, np.dtype, type, "torch.dtype"]):
+#         """
+#         (`type` arguments are intended for NumPy numeric types: 
+#         np.int32, np.float64, etc.)
+#         """
+#         dtype_str = str(dtype)
+#         if "torch" in dtype_str:
+#             return np.dtype(dtype_str.split(".")[-1])
+#         else:
+#             return np.dtype(dtype)
+
+# %% [markdown]
 # ### `symmetrize`
 #
-# **[TODO]** A version with `PermClsSymmetricTensor` which avoids redundant computation. Using `functools.singledispatch`, that version can be implemented in *permcls_symtensor.py*, with the function below used as fallback. Alternatively, an *array function* would also work, and might be more consistent with how we do dispatch elsewhere.
+# **NOTE** We use functools’ `singledispatch` here because we want to be able to write an overloaded variant for PyTorch tensors, which don’t support the `__array_function__` protocol. (PyTorch likes to be mildly incompatible with NumPy – just enough to break the default implementation below.)
 
 # %%
-def symmetrize(dense_tensor: Array, out: Optional[Array]=None) -> Array:
+@functools.singledispatch
+def symmetrize(tensor, out: Optional[Array]=None) -> Array:
     # OPTIMIZATION:
-    # - If possible (i.e. if dense_tensor ≠ out), use `out` to avoid intermediate copies in sum
+    # - If possible (i.e. if tensor ≠ out), use `out` to avoid intermediate copies in sum
     # - In this regard, perhaps a version using `np.add.accumulate` might be faster ?
     # - Does not seem to use threading: only one CPU is active, even with large matrices
-    if len(set(dense_tensor.shape)) > 1:
+    
+    # If `tensor` is not array-like (e.g., nested-lists), convert it to array
+    if not hasattr(tensor, "__array_function__"):  # This is the test used by functions which use the `like` keyword arg
+        logger.warning(f"Converted argument (type {type(tensor)}) to a NumPy array.")
+        tensor = np.asanyarray(tensor)
+
+    # Inspect args for correctness and whether symmetrization can be skipped.
+    if len(set(tensor.shape)) > 1:
         raise ValueError(f"Cannot symmetrize tensor of shape {denser_tensor.shape}: "
                          "Dimensions do not all have the same length.")
-    D = np.ndim(dense_tensor)
+    D = np.ndim(tensor)
     if D <= 1:
-        return dense_tensor # Nothing to symmetrize: EARLY EXIT
+        return tensor # Nothing to symmetrize: EARLY EXIT
     
+    # Perform symmetrization
     n = math.prod(range(1,D+1))  # Factorial – number of permutations
     if out is None:
-        out = np.empty(dense_tensor.shape, dtype=dense_tensor.dtype,
-                       like=dense_tensor)
-    out[:] = sum(dense_tensor.transpose(σaxes) for σaxes in itertools.permutations(range(D))) / n
+        out = np.empty(tensor.shape, dtype=tensor.dtype, like=tensor)
+    out[:] = sum(tensor.transpose(σaxes) for σaxes in itertools.permutations(range(D))) / n
     return out
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    for r in 2, 3, 4, 6, 8:
-        for S in 1000, 1000000:
-            #if r >= 8 and S >= 1000000:
-            #    continue
-            l = np.ceil(S**(1/r)).astype(int)  # Keep roughly same number of elements for each rank
-            A = np.random.random((l,)*r)
-            nops = 10*l**r * math.factorial(r)  # Estimate of the number of operations
-            res = timeit("symmetrize(A)", **get_timeit_kwargs(nops))
-            desc = "Array shape: " + " x ".join((f"{l}" for _ in range(r))) + f" = {l**r}"
-            print(f"{desc:<52} – {res}")
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# for r in (2, 3, 4, 6, 8):
+#     for S in (1000, 1000000):
+#         #if r >= 8 and S >= 1000000:
+#         #    continue
+#         l = np.ceil(S**(1/r)).astype(int)  # Keep roughly same number of elements for each rank
+#         A = np.random.random((l,)*r)
+#         nops = 10*l**r * math.factorial(r)  # Estimate of the number of operations
+#         res = timeit("symmetrize(A)", **get_timeit_kwargs(nops))
+#         desc = "Array shape: " + " x ".join((f"{l}" for _ in range(r))) + f" = {l**r}"
+#         print(f"{desc:<52} – {res}")
+
+# %% [markdown] tags=["remove-cell"]
 #     Array shape: 32 x 32 = 1024                       – 6.94 µs ± 21.4 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 #     Array shape: 1000 x 1000 = 1000000                – 2.51 ms ± 13.7 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
 #     Array shape: 6 x 6 x 6 x 6 = 1296                 – 71.1 µs ± 248 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
@@ -475,34 +494,40 @@ def is_symmetric(dense_tensor: Array, rtol=1e-5, atol=1e-8) -> bool:
     D = dense_tensor.ndim
     n = math.factorial(D)  # Number of permutations
     A = dense_tensor
-    return all(np.allclose(A, A.transpose(σaxes), rtol, atol, equal_nan=True)
+    # Using np.transpose instead of A.transpose allows this to work with torch tensors as well,
+    # although it converts them with asarray(). Fine here (memory is still not copied),
+    # but we wouldn’t want to use np.transpose() as part of a larger computation.
+    return all(np.allclose(A, np.transpose(A, σaxes), rtol, atol, equal_nan=True)
                for σaxes in itertools.permutations(range(D)))
 
-# %%
-if exenv != "module":
-    A = np.random.rand(3,3,3)
-    S = symmetrize(A)
-    assert not is_symmetric(A)
-    assert is_symmetric(S)
-    S = S.round(10)  # Avoid the need to do all comparisons with 'is_close'
-    assert S[0, 1, 0] == S[1, 0, 0] == S[0, 0, 1]
-    assert S[0, 2, 0] == S[2, 0, 0] == S[0 ,0, 2]
-    assert S[0, 0, 0] != S[1, 1, 1] != S[2, 2, 2]
+# %% [markdown]
+# #### Test
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    for r in 2, 3, 4, 6, 8:
-        for S in 1000, 1000000:
-            l = np.ceil(S**(1/r)).astype(int)  # Keep roughly same number of elements for each rank
-            A = np.random.random((l,)*r)
-            nops = 1e3*math.factorial(r)  # Estimate of the number of operations (Assumption: parallelized comparison)
-            res = timeit("is_symmetric(A)", **get_timeit_kwargs(nops))
-            # res = %timeit -q -o is_symmetric(A)
-            desc = "Array shape: " + " x ".join((f"{l}" for _ in range(r))) + f" = {l**r}"
-            print(f"{desc:<52} – {res}")
-
+# %% tags=["active-ipynb"]
+# A = np.random.rand(3,3,3)
+# S = symmetrize(A)
+# assert not is_symmetric(A)
+# assert is_symmetric(S)
+# S = S.round(10)  # Avoid the need to do all comparisons with 'is_close'
+# assert S[0, 1, 0] == S[1, 0, 0] == S[0, 0, 1]
+# assert S[0, 2, 0] == S[2, 0, 0] == S[0 ,0, 2]
+# assert S[0, 0, 0] != S[1, 1, 1] != S[2, 2, 2]
 
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# for r in 2, 3, 4, 6, 8:
+#     for S in 1000, 1000000:
+#         l = np.ceil(S**(1/r)).astype(int)  # Keep roughly same number of elements for each rank
+#         A = np.random.random((l,)*r)
+#         nops = 1e3*math.factorial(r)  # Estimate of the number of operations (Assumption: parallelized comparison)
+#         res = timeit("is_symmetric(A)", **get_timeit_kwargs(nops))
+#         # res = %timeit -q -o is_symmetric(A)
+#         desc = "Array shape: " + " x ".join((f"{l}" for _ in range(r))) + f" = {l**r}"
+#         print(f"{desc:<52} – {res}")
+
+# %% [markdown] tags=["remove-cell"]
 #     Array shape: 32 x 32 = 1024                          – 12.6 µs ± 86.5 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 #     Array shape: 1000 x 1000 = 1000000                   – 3.17 ms ± 23.9 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
 #     Array shape: 6 x 6 x 6 x 6 = 1296                    – 15.3 µs ± 112 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
@@ -548,18 +573,20 @@ def symmetrize_index(index: Tuple[int]) -> Tuple[List[int], ...]:
                  zip(*dict.fromkeys(itertools.permutations(index)).keys()))
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    assert symmetrize_index((0,1,2)) == ([0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1], [2, 1, 2, 0, 1, 0])
-
-    kwds = lambda rank: get_timeit_kwargs(1e3*math.factorial(rank))
-    display(timeit("symmetrize_index((0,0))", **kwds(8)))
-    display(timeit("symmetrize_index((0,0,1,1))", **kwds(8)))
-    display(timeit("symmetrize_index((0,0,1,1,2,2))", **kwds(8)))
-    display(timeit("symmetrize_index((0,0,1,1,2,2,3,3))", **kwds(8)))
-    display(timeit("symmetrize_index((0,0,0,0,2,2,2,2))", **kwds(8)))
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# assert symmetrize_index((0,1,2)) == ([0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1], [2, 1, 2, 0, 1, 0])
+#
+# kwds = lambda rank: get_timeit_kwargs(1e3*math.factorial(rank))
+# display(timeit("symmetrize_index((0,0))", **kwds(8)))
+# display(timeit("symmetrize_index((0,0,1,1))", **kwds(8)))
+# display(timeit("symmetrize_index((0,0,1,1,2,2))", **kwds(8)))
+# display(timeit("symmetrize_index((0,0,1,1,2,2,3,3))", **kwds(8)))
+# display(timeit("symmetrize_index((0,0,0,0,2,2,2,2))", **kwds(8)))
+
+# %% [markdown] tags=["remove-cell"]
 #     844 ns ± 11.9 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     2.33 µs ± 59.7 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 #     43 µs ± 158 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
@@ -752,13 +779,14 @@ def _all_index_counts(remaining_idcs, remaining_counts, max_count):
                 yield [c] + subcounts
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("_all_index_counts(8, 8, 8)"))
-    display(timeit("list(_all_index_counts(8, 8, 8))",  number=10000))
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("_all_index_counts(8, 8, 8)"))
+# display(timeit("list(_all_index_counts(8, 8, 8))",  number=10000))
+
+# %% [markdown] tags=["remove-cell"]
 #     120 ns ± 2.02 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
 #     23.6 µs ± 229 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
 
@@ -784,17 +812,18 @@ def _get_permclass(key: Tuple[int,str]) -> Tuple[int]:
     return tuple(sorted(i_counts, reverse=True))
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("_get_permclass((3, 0, 3))"))
-    display(timeit("_get_permclass(tuple('iij'))"))
-    display(timeit("_get_permclass((3, 0, 3, 4, 5, 5))"))
-    display(timeit("_get_permclass(tuple('iijjkl'))"))
-    display(timeit("_get_permclass((3, 0, 3, 4, 5, 5, 7, 1))"))
-    display(timeit("_get_permclass(tuple('iijjklmn'))"))
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("_get_permclass((3, 0, 3))"))
+# display(timeit("_get_permclass(tuple('iij'))"))
+# display(timeit("_get_permclass((3, 0, 3, 4, 5, 5))"))
+# display(timeit("_get_permclass(tuple('iijjkl'))"))
+# display(timeit("_get_permclass((3, 0, 3, 4, 5, 5, 7, 1))"))
+# display(timeit("_get_permclass(tuple('iijjklmn'))"))
+
+# %% [markdown] tags=["remove-cell"]
 #     846 ns ± 1.99 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     948 ns ± 10.7 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     1.25 µs ± 14.3 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
@@ -827,14 +856,15 @@ def _get_permclass_size(σcls: Tuple[int], dim: int) -> int:
     return int(res)
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("_get_permclass_size((2,2), 100)"))              # Rank 4
-    display(timeit("_get_permclass_size((2,2,2,2), 100)"))          # Rank 8
-    display(timeit("_get_permclass_size((1,1,1,1,1,1,1,1), 100)", number=100000))  # Rank 8
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("_get_permclass_size((2,2), 100)"))              # Rank 4
+# display(timeit("_get_permclass_size((2,2,2,2), 100)"))          # Rank 8
+# display(timeit("_get_permclass_size((1,1,1,1,1,1,1,1), 100)", number=100000))  # Rank 8
+
+# %% [markdown] tags=["remove-cell"]
 #     1.25 µs ± 17.6 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     1.83 µs ± 8.6 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     2.13 µs ± 9.87 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
@@ -855,16 +885,17 @@ def _is_subσcls(σcls: Tuple[int], subσcls: Tuple[int]) -> bool:
     return len(σcls) >= len(subσcls) and all(a >= b for a, b in zip(σcls, subσcls))
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("_is_subσcls((4,2,2), (4,2))"))
-    display(timeit("_is_subσcls((4,2,2), (4,1))"))
-    display(timeit("_is_subσcls((2,2,2,2), (4,2))"))
-    display(timeit("_is_subσcls((2,2,2,2), (2,2,2,2))"))
-    display(timeit("_is_subσcls((2,2,2,2), (2,))"))
-
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("_is_subσcls((4,2,2), (4,2))"))
+# display(timeit("_is_subσcls((4,2,2), (4,1))"))
+# display(timeit("_is_subσcls((2,2,2,2), (4,2))"))
+# display(timeit("_is_subσcls((2,2,2,2), (2,2,2,2))"))
+# display(timeit("_is_subσcls((2,2,2,2), (2,))"))
+
+# %% [markdown] tags=["remove-cell"]
 #     409 ns ± 2.96 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     407 ns ± 4.41 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     404 ns ± 8.47 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
@@ -894,13 +925,15 @@ def _perm_classes(rank):
             for counts in _all_index_counts(rank, rank, rank))
 
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    display(timeit("_perm_classes(2)"))
-    display(timeit("_perm_classes(4)"))
-    display(timeit("_perm_classes(8)"))
-
 # %% [markdown]
+# #### Timings
+
+# %% tags=["active-ipynb"]
+# display(timeit("_perm_classes(2)"))
+# display(timeit("_perm_classes(4)"))
+# display(timeit("_perm_classes(8)"))
+
+# %% [markdown] tags=["remove-cell"]
 #     296 ns ± 2 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     304 ns ± 0.755 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
 #     294 ns ± 1.01 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
@@ -908,11 +941,10 @@ if exenv in {"notebook", "jbook"}:
 # %% [markdown]
 # ### Tests
 
-# %%
-if exenv != "module":
-    def test_rank_dim() -> Generator:
-        for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
-            yield r, d
+# %% tags=["active-ipynb"]
+#     def test_rank_dim() -> Generator:
+#         for d, r in itertools.product([2, 3, 4, 6, 8], [2, 3, 4, 5, 6]):
+#             yield r, d
 
 # %% [markdown]
 # #### Combinatorics
@@ -925,10 +957,10 @@ if exenv != "module":
 # This is a well-known expression; it can be found for example [here](http://www.physics.mcgill.ca/~yangob/symmetric%20tensor.pdf).
 # This test gives us good confidence that the methods `perm_classes` and `get_permclass_size` are correctly implemented.
 
-    # %%
-    for r, d in test_rank_dim():
-        assert (sum(get_permclass_size(σcls, d) for σcls in _perm_classes(r))
-                == math.prod(range(d, d+r)) / math.factorial(r))
+# %% tags=["active-ipynb"]
+#     for r, d in test_rank_dim():
+#         assert (sum(get_permclass_size(σcls, d) for σcls in _perm_classes(r))
+#                 == math.prod(range(d, d+r)) / math.factorial(r))
 
 # %% [markdown]
 # ##### σ-class multiplicities
@@ -946,40 +978,40 @@ if exenv != "module":
 # %% [markdown]
 # ##### `is_subcls`
 
-    # %%
-    # Rank 3
-    assert is_subσcls('iii', 'ii')
-    assert is_subσcls('iij', 'ij')
-    assert is_subσcls('ijk', 'ij')
-    assert not is_subσcls('iii', 'ij')
-    assert not is_subσcls('ijk', 'ii')
-    # Rank 4
-    assert is_subσcls('iiii', 'iii')
-    assert is_subσcls('iiii', 'ii')
-    assert is_subσcls('iijj', 'ij')
-    assert is_subσcls('iijj', 'iij')
-    assert is_subσcls('iijk', 'iij')
-    assert is_subσcls('iijk', 'ijk')
-    assert is_subσcls('iijk', 'ij')
-    assert is_subσcls('iijk', 'i')
-    assert not is_subσcls('iiii', 'ij')
-    assert not is_subσcls('iiii', 'ijk')
-    assert not is_subσcls('iijj', 'ijk')
-    assert not is_subσcls('iijk', 'ijkl')
-    assert not is_subσcls('iijk', 'iijj')
-    assert not is_subσcls('iijj', 'iii')
+# %% tags=["active-ipynb"]
+#     # Rank 3
+#     assert is_subσcls('iii', 'ii')
+#     assert is_subσcls('iij', 'ij')
+#     assert is_subσcls('ijk', 'ij')
+#     assert not is_subσcls('iii', 'ij')
+#     assert not is_subσcls('ijk', 'ii')
+#     # Rank 4
+#     assert is_subσcls('iiii', 'iii')
+#     assert is_subσcls('iiii', 'ii')
+#     assert is_subσcls('iijj', 'ij')
+#     assert is_subσcls('iijj', 'iij')
+#     assert is_subσcls('iijk', 'iij')
+#     assert is_subσcls('iijk', 'ijk')
+#     assert is_subσcls('iijk', 'ij')
+#     assert is_subσcls('iijk', 'i')
+#     assert not is_subσcls('iiii', 'ij')
+#     assert not is_subσcls('iiii', 'ijk')
+#     assert not is_subσcls('iijj', 'ijk')
+#     assert not is_subσcls('iijk', 'ijkl')
+#     assert not is_subσcls('iijk', 'iijj')
+#     assert not is_subσcls('iijj', 'iii')
 
 # %% [markdown]
 # ## Profiling
 
-# %%
+# %% tags=[]
 import sys
 from mackelab_toolbox.utils import total_size
 
 from typing import Type, Iterable, Tuple
 
 
-# %%
+# %% tags=[]
 def compare_memory(
     symtensor_constructor: Type[SymmetricTensor],
     ranks_dims: Iterable[Tuple[int, int]],

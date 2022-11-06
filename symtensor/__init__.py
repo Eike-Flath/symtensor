@@ -1,6 +1,6 @@
 from .base import SymmetricTensor
 from .dense_symtensor import DenseSymmetricTensor
-# from .permcls_symtensor import PermClsSymmetricTensor
+from .permcls_symtensor import PermClsSymmetricTensor
 # try:
 #     from .torch_symmetric_tensor import TorchSymmetricTensor
 # except ModuleNotFoundError:

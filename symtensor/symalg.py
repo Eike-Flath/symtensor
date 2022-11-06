@@ -40,12 +40,12 @@ from scityping import Real
 import logging
 logger = logging.getLogger(__name__)
 
-# %% tags=["active-ipynb"]
+# %% [markdown]
 # Notebook only imports
 
 # %% tags=["active-ipynb"]
 # from symtensor.base import SymmetricTensor, result_array, array_function_dispatch
-# from symtensor.symtensor.dense_symtensor import DenseSymmetricTensor
+# from symtensor.dense_symtensor import DenseSymmetricTensor
 # from symtensor import utils
 
 # %% [markdown] tags=[]
@@ -58,10 +58,11 @@ from . import utils
 
 # %%
 __all__ = [
-    "symmetric_outer", "symmetric_tensordot", "contract_all_indices_with_matrix",
+    "add", "subtract", "multiply",
+    "result_array",
+    "outer", "tensordot", "contract_all_indices_with_matrix",
     "contract_all_indices_with_vector", "contract_tensor_list"
     ]
-
 
 # %% [markdown]
 # ## Symmetrized operations
@@ -71,7 +72,130 @@ __all__ = [
 # the result, although implementations may use a more efficient approach.
 #
 # Since the space of symmetric tensor tensors is closed under these operations,
-# we could say that they define a *symmetric algebra*.
+# we say that they define a *symmetric algebra*.
+
+# %% [markdown]
+# ### Wrapper for NumPy ufuncs
+# When ufuncs are applied element-wise operations, they  typically don't need symmetrized forms since the result is already symmetric.
+# However, variants of these operations (like `outer`), *don't* result in symmetric tensors, so we need to define a separate of symmetrized operations.
+# To maintain consistency with the NumPy interface, we define a new set of symmetrized operations `add`, `subtract`, `multiply`, etc. such that for example
+#
+#     np.multiply.outer(A, B)
+#
+# is the usual outer product, while
+#
+#     symalg.multiply.outer(A, B)
+#
+# is the symmetrized version.
+#
+# To define these variants, we need a new base set of "symmetrized" functions `add`, `multiply`, etc. to attach them to. Since the base definitions are already symmetric, they just wrap the corresponding ufunc.
+#
+# To allow `symalg` operations to work as seamlessly as possible, if a suitable symmetrized form doesn't exist, we fallback to calling `symmetrize_op(ufunc, *args)`. This allows them to be applied to standard NumPy arrays or scalars.
+#
+# **TODO?**: Should we display a warning when using the fallback, that symmetrizing posthoc can be costly on arrays with many dimensions ? Maybe only when `ndim > 2` ?
+
+# %% tags=["hide-input"]
+from functools import partial
+
+class UfuncWrapper:
+    __slots__ = ("ufunc", "signature", "__name__",
+                 "accumulate", "outer", "reduce", "at", "reduceat")
+    def __init__(self, ufunc):
+        self.ufunc = ufunc
+        self.__name__ = ufunc.__name__
+        # Implement the `symalg.add.outer` interface
+        for method in ["accumulate", "outer", "reduce", "at", "reduceat"]:
+            f = partial(ufunc_dispatch, self, method)
+            f.__name__ = self.__name__ + f".{method}"
+            setattr(self, method, f)
+        # Ufuncs have `signature` attribute, and SymmetricTensor.__array_ufunc__ relies on it.
+        self.signature = self.ufunc.signature
+    def __call__(self, *args, **kwargs):
+        # NB: To avoid having to redefing the base ufunc (since they just need to call the NumPy one)
+        #     we immediately use `self.ufunc` instead of `self`
+        #return ufunc_dispatch(self.ufunc, "__call__", *args, **kwargs)
+        return self.ufunc(*args, **kwargs)
+    
+def ufunc_dispatch(f: UfuncWrapper, method: str, *args, **kwargs):
+    # Logic: - Look for __array_ufunc__ in subclasses before classes
+    #        - Otherwise, go left to right in the *args
+    #        - If none of those work, attempt to use the underlying ufunc and symmetrize afterwards
+    #          (Note that we can't use ndarray.__array_ufunc__ with a symalg ufunc:
+    #           that function is how we got here in the first place, so calling it again would cause infinite recursion)
+    #
+    # NOTE: > Currently, for simplicity, we deviate from NumPy in that we just check
+    #         *args, instead of both inputs and then outputs. In practice, in most
+    #         cases this means that the `out` argument is ignored, when in Numpy
+    #         it would be checked for an __array_ufunc__ (albeit with the lowest precedence)
+    
+    # Annoyingly, the only reliable way I found to check if a __array_ufunc__ comes from ndarray
+    # is to retrieve the method from `type(a)`, hence the two lists below
+    # NB: We assume here the type defines __array_ufunc__ iff the instance does – someone monkey patching an __array_ufunc__ should be very unlikely
+    array_ufuncs = []
+    associate_types = []
+    seen_Ts = set()
+    # order __array_ufuncs__ in order of subclasses
+    for a in args:
+        T = type(a)
+        if getattr(T, "__array_ufunc__", None) is np.ndarray.__array_ufunc__:
+            # Skip the base __array_ufunc__
+            continue
+        au = getattr(a, "__array_ufunc__", None)
+        if au is None or T in seen_Ts:
+            # This argument does not provide __array_ufunc__ or this type has already been seen
+            continue
+        # Try to find any superclass of T, to put it ahead in precedence
+        try:
+            i = next(i for i, T_ in enumerate(associate_types)
+                     if T != T_ and issubclass(T, T_))
+        except StopIteration:
+            array_ufuncs.append(au)
+            associate_types.append(T)
+        else:
+            array_ufuncs.insert(i, au)
+            associate_types.insert(i, T)
+
+    # Now that we have ordered all array_ufuncs, try them in order and exit on the first success
+    for array_ufunc in array_ufuncs:
+        res = array_ufunc(f, method, *args, **kwargs)
+        if res is not NotImplemented:
+            return res  # EARLY EXIT
+
+    # None of the __array_ufuncs__ worked (or there were no specialized ones)
+    # Fallback to a standard NumPy op with symmetrization
+    if method == "__call__":
+        # Assume standard op is already symmetric
+        return f.ufunc(*args, **kwargs)
+    else:
+        return symmetrized_op(getattr(f.ufunc, method), *args, **kwargs)
+        
+    ## Leftover code which may be useful if we catch undefined ops again
+    # if error:
+    #     if method == "__call__":
+    #         fname = f"{f.__module__}.{f.ufunc.__name__}"
+    #     else:
+    #         fname = f"{f.__module__}.{f.ufunc.__name__}.{method}"
+    #     operands = ", ".join((str(a) for a in args))
+    #     if kwargs:
+    #         if operands:
+    #             operands += ", "
+    #         operands += ", ".join((f"{k}={v}" for k,v in kwargs.items()))
+    #     raise TypeError(f"Unsupported function {fname} for operands: {operands}")
+
+
+# %% [markdown] tags=["remove-cell"]
+# **TODO?** The current implementation redirects standard calls (e.g. `symalg.add`) to the already symmetric NumPy equivalent (`np.add`). This means that these functons never get entries in the `__call__` subdictionary in SymmetricTensor class' `_HANDLED_UFUNCS` dictionary. These seems to anyway be what we want for all the symmetrized ufuncs we want to support, but it does remove the possibility to reimplement them (or remove an implementation, e.g. with `SymmetricTensor.does_not_implement`)
+
+# %%
+# Ufunc wrappers must have the same name as the function they wrap (so the wrapper for `np.add` should be assigned to `add`).
+# Otherwise introspection and error messages will give the wrong identifiers.
+add = UfuncWrapper(np.add)
+subtract = UfuncWrapper(np.subtract)
+multiply = UfuncWrapper(np.multiply)
+
+
+# %% [markdown]
+# ### Symmetrized variants
 #
 # The reference implementations provided here simply convert SymmetricTensors
 # to dense arrays, then apply the function. This is obviously to be avoided
@@ -158,10 +282,13 @@ def symmetrized_op(op, a, b, **kwargs):
 
 # %% [markdown]
 # ### `outer`
+#
+# **Remark**: These are attached to the symmetrized ufunc wrappers defined above, not the NumPy ufuncs (i.e. `symalg.add` instead of `np.add`).
 
 # %%
-@SymmetricTensor.implements_ufunc.outer(np.add, np.subtract, np.multiply)
-def symmetric_outer(ufunc: np.ufunc, a, b, **kwargs):
+@SymmetricTensor.implements_ufunc.outer(add, subtract, multiply)
+def outer(ufunc: UfuncWrapper, a, b, **kwargs):
+    outer_op = ufunc.ufunc.outer
     ranka = np.ndim(a)
     rankb = np.ndim(b)
     dima = a.dim if isinstance(a, SymmetricTensor) else (*np.shape(a), 1)[0]  # Could be a scalar
@@ -178,49 +305,42 @@ def symmetric_outer(ufunc: np.ufunc, a, b, **kwargs):
     if out is None:
         symargs = tuple(x for x in (a, b) if isinstance(x, SymmetricTensor))
         assert symargs, "None of the arguments is a SymmetricTensor."
-        cls = utils.common_superclass(*symargs)
+        cls = result_array(*symargs)
         dtype = np.result_type(a, b)  # NB: Non-symmetric args also determine dtype
         out = cls(rank=ranka+rankb, dim=dim, dtype=dtype)
-    return symmetrized_op(ufunc.outer, a, b, out=out)
+    return symmetrized_op(outer_op, a, b, out=out)
 
 
 # %% [markdown]
 # ## Array function dispatch – existing ops
 
 # %% [markdown]
+# ### `transpose`
+
+# %%
+@SymmetricTensor.implements(np.transpose)
+def transpose(a, axes=None):
+    return a.transpose(axes)
+
+
+# %% [markdown]
 # ### `tensordot`
+#
+# Prevent using `np.tensordot` on symmetric tensors: instead users should explicitely convert them to dense arrays, since ultimately that's what we do.
+#
+# :::{admonition} **TODO?**  
+# Even though the result isn't symmetric, there may still be computational benefits to using symmetric tensors first. We don't have a use case for this though, but if we did, we could return here `NotImplemented` instead, to allow subclasses of `SymmetricTensor` to provide an implementation. The disadvantage is that we then would not have a natural place to catch cases where people use `np.tensordot` when in fact they want `symalg.tensordot`.
+# :::
 
 # %%
 @SymmetricTensor.implements(np.tensordot)
-def symmetric_tensordot(a, b, axes=2):
-    """
-    .. Warning:: Although this defines `tensordot` for SymmetricTensors, it
-       defines the *symmetrized* form. So results will in general differ
-       between
+def nonsymmetric_tensordot(a, b, axes=2):
+    raise NotImplementedError(
+        "SymmetricTensors offer no benefit for computing standard tensor contractions, "
+        "since the result is not symmetric. Use instead ``np.tensordot(a.todense(), b.todense())`` "
+        "for the standard non-symmetric tensor dot, or ``symalg.tensordot(a, b)`` "
+        "for the symmetrized version.")
 
-           np.tensordot(A, B)
-
-       and
-
-           np.tensordot(A.todense(), B.todense())
-    """
-    cls = result_array(a, b)
-    if isinstance(a, SymmetricTensor):
-        a = a.todense()
-    if isinstance(b, SymmetricTensor):
-        b = b.todense()
-
-    out = utils.symmetrize(np.tensordot(a, b, axes))
-
-    if len(set(out.shape)) > 1:
-        raise RuntimeError("`_symmetric_outer` resulted in a non-square "
-                           f"result of shape {out.shape}.")
-
-    if issubclass(cls, SymmetricTensor):
-        dim = (*np.shape(out), 1)[0]  # NB: It is possible for both a and b to be scalars
-        out = cls(rank=np.ndim(out), dim=dim, data=out)
-
-    return out
 
 # %% [markdown]
 # ### `einsum_path`
@@ -279,10 +399,55 @@ def symmetric_tensordot(a, b, axes=2):
 #
 # - The `@array_function_dispatch` decorator is used to define a new array function.
 #   The function it decorates serves as the default, if the arguments do not match those of another function.
-# - To each array function is paired a *dispatcher* function. This function must have the same signature as its associated function, and return a tuple of "important" arguments:[^1] those arguments the dispatcher should check to determine which function to redirect to.
+# - To each array function is paired a *dispatcher* function. This function must have the same signature as its associated function, and return a tuple of "important" arguments:[^1] those are the arguments the dispatcher will check to determine which function to redirect to.
 # - Specialized functions can be associated to specific `SymmetricTensor` subclasses by using the `@implements` decorator.
+# - In a nutshell, the wrapped function does the following when called:
+#   + Call the dispatcher to get the important arguments.
+#   + By inspection, determine the type of each important argument.
+#   + Limiting itself to the important arguments, look for those implementing `__array_ufunc__`, and then from left to write pass to those `__array_ufunc__` both the function arguments and the list of types.
+#   + Each `__array_ufunc__` will then typically use the list of types to quickly determine if it has can process the arguments. If not, `NotImplemented` is returned, to allow checking the next argument for an implementation.
 #
-# [^1]: Exception: if the function includes arguments with default values, the corresponding arguments of the dispatcher must use `None` as their default value. See also the docstring of numpy.core.overrides.array_function_dispatch; some examples can be found in numpy.core.numeric.py
+# [^1]: Exception: if the function includes arguments with default values, the corresponding arguments of the dispatcher must use `None` as their default value. See also the docstring of *numpy.core.overrides.array_function_dispatch*; some examples can be found in *numpy.core.numeric.py*.
+
+# %% [markdown]
+# ### Symmetrized functions
+
+# %% [markdown]
+# #### `tensordot` (symmetrized)
+
+# %%
+def _tensordot(a, b, axes=None):
+    return a, b
+
+@array_function_dispatch(_tensordot)
+def tensordot(a, b, axes=2):
+    """
+    .. Warning:: This defines the *symmetrized* form of `tensordot` for SymmetricTensors.
+       So results will in general differ between
+
+           np.tensordot(A.todense(), B.todense())
+
+       and
+
+           symalg.tensordot(A, B)
+    """
+    cls = result_array(a, b)
+    if isinstance(a, SymmetricTensor):
+        a = a.todense()
+    if isinstance(b, SymmetricTensor):
+        b = b.todense()
+
+    out = utils.symmetrize(np.tensordot(a, b, axes))
+
+    if len(set(out.shape)) > 1:
+        raise RuntimeError("`_symmetric_outer` resulted in a non-square "
+                           f"result of shape {out.shape}.")
+
+    if issubclass(cls, SymmetricTensor):
+        dim = (*np.shape(out), 1)[0]  # NB: It is possible for both a and b to be scalars
+        out = cls(rank=np.ndim(out), dim=dim, data=out)
+
+    return out
 
 # %% [markdown]
 # ### Contraction functions
@@ -346,8 +511,9 @@ def contract_all_indices_with_vector(symtensor: SymmetricTensor, x: "array_like"
         # vec = DenseSymmetricTensor(rank=1, dim=self.dim)
         # vec['i'] = x
         x = np.asanyarray(x)
-        tensordot = partial(np.tensordot, axes=1)
-        return reduce(tensordot, (x,)*symtensor.rank, symtensor)
+        # NB: This uses the *symmetrized* symalg.tensordot defined above
+        symtensordot = partial(tensordot, axes=1)
+        return reduce(symtensordot, (x,)*symtensor.rank, symtensor)
 
 # %% [markdown]
 # #### `contract_tensor_list`
@@ -401,8 +567,8 @@ def contract_tensor_list(
         # Ensure we don’t consume an iterator
         tensor_list = list(tensor_list)
 
-    if (not isinstance(symtensor, SymmetricTensor)
-        or not all(isinstance(χ, SymmetricTensor) for χ in tensor_list)):
+    if ( not isinstance(symtensor, SymmetricTensor)
+         or not all(isinstance(χ, SymmetricTensor) for χ in tensor_list) ):
         return NotImplemented
 
     cls = result_array(symtensor, *tensor_list)
@@ -452,6 +618,7 @@ def contract_tensor_list(
             
         for idx in indices:
             # outer(... (outer(outer(Ar[idx], χ[i0]), χ[i1]) ..., χ[in])
-            C += reduce(np.multiply.outer, [tensor_list[i] for i in idx], Ar[idx])
+            C += reduce(multiply.outer, (tensor_list[i] for i in idx), Ar[idx])
+                # NB: This uses the *symmetrized* `symalg.multiply.outer` defined above
 
         return C

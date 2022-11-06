@@ -39,8 +39,8 @@ from numpy.core.overrides import array_function_dispatch as _array_function_disp
 
 from mackelab_toolbox.utils import total_size_handler
 
-from typing import (Union, ClassVar, Any, Type, Iterator, Generator, KeysView,
-                    Dict, List, Tuple, Set)
+from typing import (Optional, Union, ClassVar, Any, Type, Iterator, Generator,
+                    KeysView, Dict, List, Tuple, Set)
 from scityping import Number, Serializable
 from scityping.numpy import Array, DType
 from scityping.pydantic import dataclass
@@ -345,7 +345,7 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
 
     rank        : int
     dim         : int
-    _dtype      : DType
+    _dtype      : DType=None
     data_format : ClassVar[str]="None"
     array_type  : ClassVar[type]=np.ndarray  # Type for undelying arrays. Typically changed by abstract subclasses to change the backend. At present not really used, but since we anticipate it will be useful, we preemptively standardize its name
 
@@ -508,11 +508,23 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         Given the data for a single underlying data object, validate it.
         Typically this means casting to `ndarray`, and checking that is it
         either of numeric or bool type.
+
+        .. Note:: This function behaves slightly differently during and after 
+           initialization, since during initialization the dtype isn’t yet known.
+           When used the dtype of `array` is not changed.
+           After initialization, it is coerced to the expected dtype.
+           In both cases, the purpose of this function is the same: take some
+           array data, and coerce it into the format of the underlying data.
+           It’s just that during initialization, the information required to
+           coerce dtype is not yet available.
         """
         # Cast to array if necessary
         if not isinstance(array, np.ndarray):
             # Reproduce the same range of standardizations NumPy has: Python bools & ints, NumPy types, tuples, lists, etc.
-            array = np.asanyarray(array)
+            # NB: During initialization, `self._dtype` is None.
+            array = np.asanyarray(array, self._dtype)
+        elif self._dtype is not None and array.dtype != self._dtype:
+            array = array.astype(self._dtype)
 
         # Validate dtype
         if array.dtype == object:
@@ -645,13 +657,40 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         # Perform additional correctness checks
         if "_data" not in cls.__annotations__ and not inspect.isabstract(cls):
             raise RuntimeError(f"Class {cls} does not define '_data' in its class annotations.")
+        data_formats = [ C.data_format for C in cls.mro()
+                         if SymmetricTensor in C.mro() ]  # NB: Alternative to ``instance(cls, SymmetricTensor)``, which returns False, probably because the class isn’t done initializing
+        # if "torch" in str(cls).lower():
+        if all(df == "None" for df in data_formats):
+            raise RuntimeError(f"Class {cls} does not define a class attribute 'data_format'. "
+                               "This must be a string unique to each storage format, e.g. 'Dense', 'PermCls'")
+        elif data_formats[0] == "None: This class is abstract":  # Special value which won’t be used by accident
+            cls.data_format = "None"
+        else:
+            cls.data_format = next(df for df in data_formats if df != "None")
+
+        # elif cls.data_format == "None":
+        #     raise RuntimeError(f"Class {cls} does not define a class attribute 'data_format'. "
+        #                        "This must be a string unique to each storage format, e.g. 'Dense', 'PermCls'")
         # Add class-level attributes which require an already instantiated class
         cls.implements_ufunc = HandledUfuncsInterface(cls)
         cls.does_not_implement_ufunc = HandledUfuncsInterface(cls, implements=False)
         # Create child ChainMaps, so function registries can be updated without changing those of the parents
-        cls._HANDLED_FUNCTIONS = cls._HANDLED_FUNCTIONS.new_child()
-        cls._HANDLED_UFUNCS = {method: m.new_child()
-                               for method, m in cls._HANDLED_UFUNCS.items()}
+        # (NB: If we didn’t need to support multiple inheritance, we
+        #  could do `cls._HANDLED_FUNCTIONS.new_child()`)
+        def add_child(get_map):
+            return ChainMap(
+                {}, *(get_map(base).maps[0]
+                      for base in cls.mro()[1:]
+                      if hasattr(base, "_HANDLED_FUNCTIONS")))
+        cls._HANDLED_FUNCTIONS = add_child(lambda base: base._HANDLED_FUNCTIONS)
+        # cls._HANDLED_FUNCTIONS = ChainMap(
+        #     {}, *(base._HANDLED_FUNCTIONS.maps[0]
+        #           for base in cls.mro()[1:]
+        #           if hasattr(base, "_HANDLED_FUNCTIONS")))
+        # cls._HANDLED_UFUNCS = {method: m.new_child()
+        #                        for method, m in cls._HANDLED_UFUNCS.items()}
+        cls._HANDLED_UFUNCS = {method: add_child(lambda base: base._HANDLED_UFUNCS[method])
+                               for method in cls._HANDLED_UFUNCS.keys()}
         # Pass control to parent __init_subclass__
         super().__init_subclass__()
 
@@ -996,6 +1035,9 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         else:
             return type(self)(self.rank, self.dim, data=new_data)
 
+    def transpose(self, *axes):
+        return self
+
     ## __array_function__ protocol (NEP 18) ##
 
     def __array_function__(self, func, types, args, kwargs):
@@ -1052,6 +1094,13 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
              Even if storage is structured into permutation classes, the
              iteration over classes may still be slower than in cases 1 or 2.
         """
+        # # Print more legible error if one mixes Torch and NumPy types
+        # if any("torch" in str(type(a)).lower()
+        #        for a in itertools.chain(inputs, kwargs.values())):
+        #     raise NotImplementedError("Mixing Torch variables with NumPy-backed SymmetricTensors is not supported.")
+        #     # Alternative: Force the upcasting of a NumPy-backed tensor to Torch, if one of the arguments is a Torch type
+        #     # return type(self).with_backend("torch").__array_ufunc__(ufunc, method, *inputs, **kwargs)
+
         f = self._HANDLED_UFUNCS[method].get(ufunc, "not found")  # Don’t use None as sentinel, because it can be added to registry to disable a ufunc
         if f == "not found":
             if ufunc.signature is None:
@@ -1103,7 +1152,7 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         # therefore easily supported: just apply them to the data.
         assert ufunc.signature is None, "Default unary operation only supports ufuncs with '()->()' signature."
         assert method == "__call__"  # Only other allowed unary ufunc is 'at', which we excluded above
-        assert ufunc.nin == 1, "Unary ufunc should have 1 arguments."
+        assert ufunc.nin == 1, "Unary ufunc should have 1 argument."
 
         A, = inputs
         # Standardize ’outs’ to a tuple, like __array_function__
@@ -1174,7 +1223,8 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                              if not isinstance(o, SymmetricTensor)]
         assert len(symtensor_args) > 0, "How did we end up here if no argument is a SymmetricTensor ?"
 
-        cls = utils.common_superclass(*symtensor_args)
+        # cls = common_superclass(*symtensor_args)
+        cls = result_array(*symtensor_args)
         assert issubclass(cls, SymmetricTensor), "If there is a good reason not to output a SymmetricTensor here, we could support that"
 
         # Determine rank and dim of the output
@@ -1406,7 +1456,7 @@ def shape(a: SymmetricTensor) -> Tuple[int,...]:
 
 
 # %% [markdown]
-# #### `asarray()`, `asanyarray()`
+# #### `asarray()`, `asanyarray()`, `empty`
 
 # %%
 @SymmetricTensor.implements(np.asarray)
@@ -1434,6 +1484,16 @@ def asanyarray(a, dtype=None, order=None):
         return a
     else:
         return type(a)(a.rank, a.dim, data=new_data)
+    
+@SymmetricTensor.implements(np.empty)
+def empty(shape, dtype=float, order="C", *, like=None):
+    # The only argument which should be of type SymmetricTensor is `like`
+    assert isinstance(like, SymmetricTensor), "The SymmetricTensor implementation of `np.empty` was triggered without passing a SymmetricTensor as the `like` argument. This cannot be correct."
+    if len(set(shape)) > 1:
+        raise ValueError("The `shape` argument must be square for a symmetric tensor")
+    rank = len(shape)
+    dim = shape[0]
+    return type(like)(rank, dim)  # An empty SymmetricTensor is created by default
 
 # %% [markdown]
 # #### `result_type()`
@@ -1591,9 +1651,12 @@ def _array_compare(comp, a, b) -> bool:
 
     elif isinstance(b, Number_):
         # The branch above would also work, but may unnecessarily create a dense array
-        return a.ndim == 0 and comp(next(iter(a.flat)), b)
+        return a.rank == 0 and a.dim == 1 and comp(next(iter(a.flat)), b)
 
     elif isinstance(b, SymmetricTensor):
+        if a.dim == b.dim == 0:
+            # Case: two SymmetricTensors of size 0. Equal iff they have same shape (this is what np.array_equal does)
+            return a.rank == b.rank
         if a.data_alignment == b.data_alignment:  # Includes a check that shape is the same
             # Case: two SymmetricTensors with the same memory layout: compare them directly
             return all(comp(x, y)
@@ -1723,6 +1786,26 @@ def result_symtensor(*arrays_and_types) -> Type[SymmetricTensor]:
     return utils.common_superclass(*symtypes)
 
 
+# %% [markdown]
+# ### Specialization of our own utility functions
+
+# %% [markdown]
+# #### `symmetrize`
+#
+# Since instances of `SymmetricTensor` are by definition symmetric, we replace
+# the definition of `symmetrize` by a no-op.
+
+# %%
+@utils.symmetrize.register
+def _(tensor: SymmetricTensor, out: Optional[SymmetricTensor]=None) -> SymmetricTensor:
+    if out is None:
+        return tensor
+    elif isinstance(out, SymmetricTensor):
+        out[:] = tensor
+        return out
+    else:
+        out[:] = tensor.todense()
+        return out
 
 # %% [markdown]
 # ### Symmetrized algebra
