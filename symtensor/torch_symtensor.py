@@ -17,29 +17,34 @@
 from __future__ import annotations
 
 # %% tags=["remove-input"]
-from functools import reduce,partial
+from functools import reduce, partial
+import math
 import numpy as np   # To avoid MKL bugs, always import NumPy before Torch
 import torch
 from pydantic import BaseModel
+from collections import namedtuple
 from collections_extended import bijection
+import dataclasses
 
-from typing import Optional, ClassVar, Union
+from typing import Optional, ClassVar, Union, Callable
 from scityping import Number
 from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
-# %% tags=["active-ipynb", "remove-input"]
-# # Module only imports
+# %% tags=["active-ipynb"]
+# Module only imports
+
+# %% tags=["active-ipynb"]
 # #from symtensor import SymmetricTensor
 # from symtensor.base import SymmetricTensor,_elementwise_compare, _array_compare
-# from symtensor import base
-# from symtensor import utils
+# from symtensor import base, symalg, utils
+
+# %% [markdown] tags=["remove-cell"]
+# Script only imports
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
 from .base import SymmetricTensor, array_function_dispatch
-from . import base
-from . import utils
+from . import base, symalg, utils
 
 # %% [markdown]
 # ## Considerations
@@ -85,9 +90,8 @@ torch.tensordot(A, A, dims=1)
 # NumPy dtype <-> PyTorch dtype conversions. Based on a list from PyTorch's [test utilities](https://github.com/pytorch/pytorch/blob/e180ca652f8a38c479a3eff1080efe69cbc11621/torch/testing/_internal/common_utils.py#L349). except that we use the actual NumPy dtypes.
 
 # %%
-
 _numpy_to_torch_dtypes = bijection({
-    np.dtype(np.bool)       : torch.bool,
+    np.dtype(bool)       : torch.bool,
     np.dtype(np.uint8)      : torch.uint8,
     np.dtype(np.int8)       : torch.int8,
     np.dtype(np.int16)      : torch.int16,
@@ -104,8 +108,10 @@ _numpy_to_torch_dtypes = bijection({
 # ## Abstract `TorchSymmetricTensor`
 #
 # Compared to `SymmetricTensor`:
-# + *Adds* the following attributes :
+# + *Adds* the following attributes and methods :
 #     - `device`: Set to either `"cpu"` or `"gpu"`.
+#     - `clone`: Call `.clone()` on all underlying tensors
+#     - `detach`: Call `.detach()` on all underlying tensors
 #
 # + *Removes* the following methods:
 #     - `astype`: Torch tensors don't implement it
@@ -113,6 +119,21 @@ _numpy_to_torch_dtypes = bijection({
 # + *Modifies* the following private methods:
 #     - `_validate_dataarray`: Validates to Torch types. This is anyway normally overridden by subclasses.
 #     - `_set_dtype`: Uses Torch dtypes
+#     - `copy`: Uses `.detach().clone()` instead of `.copy()`
+
+# %%
+@dataclasses.dataclass
+class TorchUfunc:
+    npufunc  : Callable # Real ufunc: the NumPy ufunc we want to replace
+    __call__ : Callable   # Faked ufunc: the equivalent Torch function
+    signature: Optional[str]=None
+    nin      : int=None
+    nout     : int=None
+    def __post_init__(self):
+        self.__call__ = getattr(torch, self.npufunc.__name__)
+        self.signature = self.npufunc.signature
+        self.nin = self.npufunc.nin
+        self.nout = self.npufunc.nout
 
 # %%
 class TorchSymmetricTensor(SymmetricTensor):
@@ -123,12 +144,14 @@ class TorchSymmetricTensor(SymmetricTensor):
 
     # Overridden class attributes
     array_type  : ClassVar[type]=torch.tensor
+    data_format : ClassVar[str]="None: This class is abstract"  # Special value converted to 'None'. Used to skip validation check.
     # New attributes
     _device_name: str
 
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Union[Array, Number]=np.float64(0),
                  dtype: Union[str,DType]=None,
+                 symmetrize: bool=False,
                  device: Union[str, 'torch.device']="cpu"):
         """
         {{base_docstring}}
@@ -150,13 +173,17 @@ class TorchSymmetricTensor(SymmetricTensor):
         # Convert possibly NumPy dtype to PyTorch
 
         # Let super class do the initialization
-        super().__init__(rank = rank, dim = dim , data = data, dtype =dtype)
+        super().__init__(rank=rank, dim=dim , data=data, dtype=dtype,
+                         symmetrize=symmetrize)
 
     def _validate_dataarray(self, array: "array-like") -> Array:
         # Cast to array if necessary
         if not isinstance(array, torch.Tensor):
             # Reproduce the same range of standardizations NumPy has: Python bools & ints, NumPy types, tuples, lists, etc.
-            array = torch.tensor(array)
+            # NB: During initialization, `self._dtype` is None.
+            array = torch.tensor(array, dtype=self._dtype)
+        elif self._dtype is not None and array.dtype != self._dtype:
+            array = array.type_as(self._dtype)
 
         # Validate dtype
         # At present, PyTorch only has numeric & bool dtypes, so there isn't really anything to check
@@ -171,6 +198,30 @@ class TorchSymmetricTensor(SymmetricTensor):
             dtype = _numpy_to_torch_dtypes[np.dtype(dtype)]
         self._dtype = dtype
 
+    def copy(self) -> TorchSymmetricTensor:
+        """
+        .. Caution:: This is equivalent to `.clone()`, meaning that the data are
+           copied but still port of the computational graph. to get a  “pure data”
+           object, as might be expected for a copy, use `.detach().clone()`
+        """
+        return self.clone()
+
+    def clone(self) -> TorchSymmetricTensor:
+        """
+        Call `.clone()` on all underlying Torch tensors and return a new
+        TorchSymmetricTensor with the result.
+        """
+        return self.__class__(dim = self.dim, rank = self.rank,
+                              data = {k: arr.clone() for k, arr in self.items()})
+
+    def detach(self) -> TorchSymmetricTensor:
+        """
+        Call `.detach()` on all underlying Torch tensors and return a new
+        TorchSymmetricTensor with the result.
+        """
+        return self.__class__(dim = self.dim, rank = self.rank,
+                              data = {k: arr.detach() for k, arr in self.items()})
+
     @property
     def device(self) -> "torch.device":
         return torch.device(self._device_name)
@@ -178,20 +229,22 @@ class TorchSymmetricTensor(SymmetricTensor):
     #### Pydantic serialization ####
 
     # TODO: Can we get rid of this ? The only difference with the base class is the type of `data`; maybe that can be inferred from a `cls.array_type` ?
-    class Data(BaseModel):
-        rank: int
-        dim: int
-        # NB: JSON keys must be str, int, float, bool or None, but not tuple => convert to str
-        data: Dict[str, TorchTensor]
-        @classmethod
-        def json_encoder(cls, symtensor: SymmetricTensor):
-            return cls(rank=symtensor.rank, dim=symtensor.dim,
-                       data={str(k): v for k,v in symtensor.items()})
+    # class Data(SymmetricTensor.Data):
+    #     pass
+        # _symtensor_type: ClassVar[Optional[type]]="DenseTorchSymmetricTensor"  # NB: DenseTorchSymmetricTensor is not yet defined
+        # rank: int
+        # dim: int
+        # # NB: JSON keys must be str, int, float, bool or None, but not tuple => convert to str
+        # data: Dict[str, TorchTensor]
+        # @classmethod
+        # def json_encoder(cls, symtensor: SymmetricTensor):
+        #     return cls(rank=symtensor.rank, dim=symtensor.dim,
+        #                data={str(k): v for k,v in symtensor.items()})
 
-        #Todo: Write encode funtion
-        def encode(self,):
-            #dirty hack
-            pass
+        # #Todo: Write encode funtion
+        # def encode(self,):
+        #     #dirty hack
+        #     pass
 
     ## Array creation, copy, etc. ##
 
@@ -199,15 +252,61 @@ class TorchSymmetricTensor(SymmetricTensor):
         "Torch tensors don't implement this."
         raise NotImplementedError
 
+    ## Override default ufuncs to use torch ops ##
+
+    # NB: Making a @staticmethod would prevent using `super()`
+    def default_unary_ufunc(self, ufunc, method, *inputs, **kwargs):
+        # TODO: Use type(self).with_backend("numpy").default_unary_ufunc(self, ufunc, ...)
+        return super().default_unary_ufunc(TorchUfunc(ufunc), method,
+                                           *inputs, **kwargs)
+
+    def default_binary_ufunc(self, ufunc, method, *inputs, **kwargs):
+        # TODO: Use type(self).with_backend("numpy").default_unary_ufunc(self, ufunc, ...)
+        return super().default_binary_ufunc(TorchUfunc(ufunc), method,
+                                            *inputs, **kwargs)
+
 # %% [markdown]
-# ### Implementation of the `__array_function__` dispatch protocol
+# ### Implementations for the `__array_ufunc__` dispatch protocol
+
+# %% [markdown]
+# Replace NumPy ufuncs by Torch equivalents in implementations.
+# (E.g. `np.multiply.outer` becomes `torch.outer`)
+# Note that `symalg` ops expect a `UfuncWrapper`, which for the purposes of the specialized implementation, is just a container with an attribute `ufunc` pointing to the ufunc to specialize.
+#
+# So internally, `symalg.outer` only uses its `ufunc` argument to retrieve `ufunc.ufunc.outer`. In order to reuse the function, we create a proxy object where the torch-compatible `outer` can be retrieved at the same location.
+#
+# Note that Torch doesn’t provide `outer` variants of its functions, so we emulate it with broadcasting.
+
+# %%
+class UfuncWithOuter:  # TODO: Combine with TorchUfunc defined above
+    def __init__(self, torchop):
+        self.torchop = torchop
+    def outer(self, a, b, **kwargs):
+        slc = (slice(None),)*np.ndim(a) + (np.newaxis,)*np.ndim(b)
+        return self.torchop(torch.as_tensor(a)[slc], torch.as_tensor(b), **kwargs)
+
+ObjWithUfunc = namedtuple("ObjWithUfunc", ["ufunc"])
+
+# %%
+for symalgop, torchop in [(symalg.add, torch.add),
+                          (symalg.subtract, torch.subtract),
+                          (symalg.multiply, torch.multiply)]:
+
+    @TorchSymmetricTensor.implements_ufunc.outer(symalgop)
+    def outer(ufunc: UfuncWrapper, a, b, **kwargs):
+        return symalg.outer(ObjWithUfunc(UfuncWithOuter(torchop)),
+                            a, b, **kwargs)
+
+
+# %% [markdown]
+# ### Implementations for the `__array_function__` dispatch protocol
 
 # %% [markdown]
 # #### `result_type()`
 
 # %%
 @TorchSymmetricTensor.implements(np.result_type)
-def result_type(*tensors_or_numbers) -> DType:
+def result_type(*arrays_and_dtypes) -> DType:
     """
     Extends support for numpy.result_type. SymmetricTensors are treated as
     arrays of the same dtype.
@@ -217,13 +316,18 @@ def result_type(*tensors_or_numbers) -> DType:
     """
     # If the array function dispatch got here, one of the args is a TorchSymmetricTensor
     # torch.result_type only works with pairs, so we use functools.reduce to apply to all args
-    return reduce(torch.result_type, tensors_or_numbers)
+    # torch.result_type ALSO only works with values (not dtypes), so for dtypes we create throwaway vars
+    return reduce(torch.result_type,
+                  (x.type(1) if isinstance(x, np.dtype)
+                   else torch.scalar_tensor(1, dtype=x) if isinstance(x, torch.dtype)
+                   else x
+                   for x in (y.dtype if isinstance(y, SymmetricTensor) else y
+                             for y in arrays_and_dtypes)))
 
 # %% [markdown]
 # #### `isclose()`
 
 # %%
-
 @TorchSymmetricTensor.implements(np.isclose)
 def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, SymmetricTensor]:
     """
@@ -232,8 +336,10 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
     Otherwise returns an `ndarray`.
     """
     return base._elementwise_compare(
-        partial(torch.isclose, rtol=rtol, atol=atol, equal_nan=equal_nan),
-        a, b)
+        lambda _a, _b: torch.isclose(torch.as_tensor(_a), torch.as_tensor(_b),
+                                     rtol=rtol, atol=atol, equal_nan=equal_nan),
+        a, b
+        )
 
 # %% [markdown]
 # #### `array_equal()`, `allclose()`
@@ -241,7 +347,6 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
 # **[TODO]** For consistency with NumPy, `allclose` should apply broadcasting, and raise `ValueError` if the shapes aren’t broadcastable.
 
 # %%
-
 @TorchSymmetricTensor.implements(np.array_equal)
 def array_equal(a, b) -> bool:
     """
@@ -262,7 +367,38 @@ def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
          a, b)
 
 # %% [markdown]
-# #### Definition of new array functions
+# #### `utils.symmetrize`
+#
+# This is a port of the default implementation in `symtensor.utils`, with the
+# only difference that a Torch array is created (instead of a NumPy array).
+#
+# **TODO?**: We put this in this module because it requires the `torch` import,
+#   but it would be better placed in something like a `torch.utils` module.
+
+# %%
+import itertools
+
+@utils.symmetrize.register
+def _(tensor: torch.Tensor, out: Optional[TorchTensor]=None) -> TorchTensor:
+    # OPTIMIZATION:
+    # - If possible (i.e. if tensor ≠ out), use `out` to avoid intermediate copies in sum
+    # - In this regard, perhaps a version using `np.add.accumulate` might be faster ?
+    # - Does not seem to use threading: only one CPU is active, even with large matrices
+
+    # Inspect args for correctness and whether symmetrization can be skipped.
+    if len(set(tensor.shape)) > 1:
+        raise ValueError(f"Cannot symmetrize tensor of shape {denser_tensor.shape}: "
+                         "Dimensions do not all have the same length.")
+    D = tensor.ndim
+    if D <= 1:
+        return tensor # Nothing to symmetrize: EARLY EXIT
+
+    # Perform symmetrization
+    n = math.prod(range(1,D+1))  # Factorial – number of permutations
+    if out is None:
+        out = torch.empty_like(tensor)
+    out[:] = sum(tensor.permute(*σaxes) for σaxes in itertools.permutations(range(D))) / n
+    return out
 
 # %% [markdown]
 # #### Type promotion: `result_array`
@@ -298,7 +434,7 @@ def result_array(*arrays_and_types) -> None:
 # %%
 from symtensor.dense_symtensor import DenseSymmetricTensor
 
-class DenseTorchSymmetricTensor(DenseSymmetricTensor, TorchSymmetricTensor):
+class DenseTorchSymmetricTensor(TorchSymmetricTensor, DenseSymmetricTensor):
     _data                : Union[TorchTensor]
 
     def _init_data(self, data, symmetrize: bool):
@@ -314,3 +450,11 @@ class DenseTorchSymmetricTensor(DenseSymmetricTensor, TorchSymmetricTensor):
             self._data = utils.symmetrize(self._data)
         elif not utils.is_symmetric(self._data):
             raise ValueError("Data are not symmetric.")
+
+    # NB: Torch doesn’t define `flat`, but instead `flatten` returns a view when possible
+    @property
+    def flat(self):
+        return self._data.flatten()
+
+    class Data(DenseSymmetricTensor.Data):
+        _symtensor_type: ClassVar[Optional[type]]="DenseTorchSymmetricTensor"  # NB: Data.decode expects a string, in order resolve the forward ref

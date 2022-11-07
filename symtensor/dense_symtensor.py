@@ -44,21 +44,26 @@ else:
 import itertools
 from reprlib import repr
 from numbers import Number as Number_, Integral as Integral_
-from typing import KeysView, ValuesView, ItemsView
+from typing import ClassVar, KeysView, ValuesView, ItemsView
 import numpy as np
 
 # %%
-from typing import Generator
+from typing import Generator, Dict
 from scityping import Number
 from scityping.numpy import Array, DType
+from scityping.pydantic import dataclass
+
+# %% [markdown] tags=["remove-cell"]
+# Notebook only imports
 
 # %% tags=["active-ipynb"]
-# # Notebook only imports
 # from symtensor.base import SymmetricTensor
 # from symtensor import utils
 
-# %% tags=["active-py"]
+# %% [markdown] tags=["remove-cell"]
 # Script only imports
+
+# %% tags=["active-py"]
 from .base import SymmetricTensor
 from . import utils
 
@@ -107,7 +112,8 @@ class DenseSymmetricTensor(SymmetricTensor):
     
     On creation, defaults to a zero tensor.
     """
-    _data                : Union[Array]
+    data_format : ClassVar[str]="Dense"
+    _data       : Union[Array]
         
     # _validate_data mostly depends on the data format – overridden in subclasses
     def _validate_data(self, data: Union[dict, "array-like"], symmetrize=False) -> Tuple[Array, DType]:
@@ -154,6 +160,32 @@ class DenseSymmetricTensor(SymmetricTensor):
             raise KeyError("DenseSymmetricTensor has only one (virtual) key: `()`")
         self._data = arr
 
+    ## Serialization ##
+    @dataclass
+    class Data(SymmetricTensor.Data):
+        _symtensor_type: ClassVar[Optional[type]]="DenseSymmetricTensor"  # NB: DenseSymmetricTensor is not yet defined
+        #rank: int
+        #dim: int
+        data: Dict[str, Array]  # NB: JSON keys cannot be tuples => convert to str
+
+        @staticmethod
+        def encode(symtensor: SymmetricTensor):
+            return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
+        @classmethod
+        def decode(cls, data: "DenseSymmetricTensor.Data"):
+            # Invert the conversion tuple -> str that was done in `encode`
+            try:
+                import sys
+                symtensor_type = getattr(sys.modules[cls.__module__], cls._symtensor_type)
+            except AttributeError:
+                raise NameError(f"Could not find '{cls._symtensor_type}' in module '{cls.__module__}'.")
+            if set(data.data) != {"()"}:
+                raise ValueError(f"Serialized data for a {symtensor_type.__name__} "
+                                 "should have only one key: `()`.")
+            data_dict = {(): data.data["()"]}
+            # Return the data to instantiate the expected tensor
+            return symtensor_type(data.rank, data.dim, data_dict)
+
     ## Dunder methods ##
 
     def __getitem__(self, key):
@@ -173,7 +205,18 @@ class DenseSymmetricTensor(SymmetricTensor):
                 rank=self.rank-1, dim=self.dim, data=self._data[key])
 
     def __setitem__(self, key, value):
-        value = np.asarray(value).astype(self.dtype)
+        ## Special, short-circuited branch if `value` is data-aligned ##
+        if (  isinstance(value, DenseSymmetricTensor)
+              and self.data_alignment == value.data_alignment
+              and key == slice(None)  ):
+            self._data[:] = self._validate_dataarray(value._data)
+            return  # EARLY EXIT
+
+
+
+        ## Normal generic branch ##
+        #value = np.asarray(value).astype(self.dtype)
+        value = self._validate_dataarray(value)
         if isinstance(key, str):
             if np.ndim(value) == 0:
                 # If rank=3, then permcls_indep_iter_index yields 3-tuples of lists
@@ -283,8 +326,8 @@ class DenseSymmetricTensor(SymmetricTensor):
 # Implementations of symmetric algebra functions
 #
 # Inherited from SymmetricTensor:
-# - (symmetric) outer (add, sub, multiply)
-# - (symmetric) tensordot
+# - ~~(symmetric) outer (add, sub, multiply)~~
+# - ~~(symmetric) tensordot~~
 # - contract_all_indices_with_matrix
 # - contract_all_indices_with_vector
 # - contract_tensor_list

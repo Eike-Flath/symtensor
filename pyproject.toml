@@ -1,6 +1,14 @@
 [build-system]
-requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=6.2"]
-build-backend = "setuptools.build_meta:__legacy__"
+# Hatchling is recommended by pytest: https://docs.pytest.org/en/7.1.x/explanation/goodpractices.html.
+# It's a pypa project with support for multiple testing environments (https://github.com/pypa/hatch)
+requires = ["hatchling", "setuptools>=42", "setuptools_scm[toml]>=6.2"]
+# build-backend = "setuptools.build_meta:__legacy__"
+build-backend = "hatchling.build"
 
 # setuptools_scm allows to automatically obtain the version number from git tags
 [tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
