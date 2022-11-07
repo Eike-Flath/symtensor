@@ -1,14 +1,78 @@
+[project]
+name = "symtensor"
+version = "0.0.1a"
+description = "A toolbox for creating and operating on symmetric tensor"
+readme = "README.md"
+requires-python = ">=3.8"
+
+authors = [
+    { name = "Alexandre René", email = "a.rene@fz-juelich.de" },
+    { name = "Claudia Merger" }
+]
+
+# TODO: license
+
+# dynamic = ["version"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics"
+]
+keywords = [
+    "mathematics",
+    "computer science",
+    "tensor",
+    "symmetric tensor",
+    "numpy",
+    "pytorch",
+    "tlash"
+]
+
+dependencies = [
+    "scityping @ git+https://github.com/alcrene/scityping",
+    "mackelab-toolbox @ git+https://github.com/mackelab/mackelab-toolbox",
+    "numpy",
+    "scipy",
+    "more_itertools",
+    "collections_extended"
+]
+
+[project.optional-dependencies]
+
+# NB: The default torch packages is a hefty 800 MB package, because it includes a complete CUDA.
+#     To use the 200 MB CPU-only version, add the following to the pip command --extra-index-url https://download.pytorch.org/whl/cpu
+test = ["pytest", "pytest-cov", "torch", "pydantic", "tqdm", "ipywidgets"]
+doc = ["ipykernel", "holoviews"]
+
+[project.urls]
+
+# Documentation = 
+"Source code" = "https://jugit.fz-juelich.de/explainable-ai/symtensor"
+
 [build-system]
 # Hatchling is recommended by pytest: https://docs.pytest.org/en/7.1.x/explanation/goodpractices.html.
 # It's a pypa project with support for multiple testing environments (https://github.com/pypa/hatch)
-requires = ["hatchling", "setuptools>=42", "setuptools_scm[toml]>=6.2"]
 # build-backend = "setuptools.build_meta:__legacy__"
-build-backend = "hatchling.build"
 
 # setuptools_scm allows to automatically obtain the version number from git tags
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.setuptools_scm]
 
+[tool.hatch]
+
+[tool.hatch.metadata]
+# Temporary measure until we publish the scityping on PyPI.
+allow-direct-references = true
+
 [tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
-]
+addopts = [ "--import-mode=importlib" ]
+testpaths = "symtensor/tests"

@@ -31,14 +31,23 @@ before_script:
   - source symtensor-env/bin/activate
 
 test:
+  stage: test
+  image: python:3
   script:
     #- python setup.py test
     #- pip install tox flake8  # you can also use tox
     #- tox -e py36,flake8
-    - pip install "scityping @ git+https://github.com/alcrene/scityping"
-    - pip install "mackelab-toolbox @ git+https://github.com/mackelab/mackelab-toolbox"
-    - pip install -U .[test]
-    - pytest
+    # - pip install "scityping @ git+https://github.com/alcrene/scityping"
+    # - pip install "mackelab-toolbox @ git+https://github.com/mackelab/mackelab-toolbox"
+    # The extra-index-url causes the CPU-only version of PyTorch to be installed, which is 200MB instead of 800MB.
+    - pip install --extra-index-url https://download.pytorch.org/whl/cpu .[test]
+    - pytest --cov=symtensor --cov-config=.coveragerc --cov-report=xml
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
 
 #run:
 #  script:
