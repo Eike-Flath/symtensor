@@ -42,14 +42,17 @@ test:
     - pip install --extra-index-url https://download.pytorch.org/whl/cpu .[test]
 
     # Coverage report:           https://docs.gitlab.com/ee/ci/testing/test_coverage_visualization.html#python-example
+    #                            https://stackoverflow.com/questions/64907513/activate-test-coverage-for-python-code-on-gitlab
     # Unit test reports (JUnit): https://docs.gitlab.com/ee/ci/testing/unit_test_reports.html#how-to-set-it-up
     #                            https://docs.pytest.org/en/7.1.x/how-to/output.html#creating-junitxml-format-files
-    - pytest --cov=symtensor --cov-config=.coveragerc --cov-report=xml --junitxml=rspec.xml
+    - pytest --cov=symtensor --cov-config=.coveragerc --junitxml=rspec.xml
+    - coverage xml -o coverage.xml
     - coverage report
   coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
     when: always
     paths:
+      # Specifying paths allows the artifacts to be browsed and downloaded on the job page
       - coverage.xml
       - rspec.xml
     reports:
