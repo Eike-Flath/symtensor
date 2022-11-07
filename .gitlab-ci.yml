@@ -21,22 +21,23 @@ variables:
 cache:
   paths:
     - .cache/pip
-    - venv/
+    - symtensor-env/
 
 before_script:
   - python --version  # For debugging
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
+  #- pip install virtualenv
+  #- virtualenv venv
+  - python -m venv symtensor-env
+  - source symtensor-env/bin/activate
 
 test:
   script:
     #- python setup.py test
     #- pip install tox flake8  # you can also use tox
     #- tox -e py36,flake8
-    - pip install git+https://github.com/alcrene/scityiping
-    - pip install git+https://github.com/mackelab/mackelab-toolbox
-    - pip install .[test]
+    - pip install "scityping @ git+https://github.com/alcrene/scityping"
+    - pip install "mackelab-toolbox @ git+https://github.com/mackelab/mackelab-toolbox"
+    - pip install -U .[test]
     - pytest
 
 #run:
