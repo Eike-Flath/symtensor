@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 # %% tags=["remove-input"]
-from functools import reduce
+from functools import reduce,partial
 import numpy as np   # To avoid MKL bugs, always import NumPy before Torch
 import torch
 from pydantic import BaseModel
