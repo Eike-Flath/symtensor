@@ -45,9 +45,8 @@ test:
     #                            https://stackoverflow.com/questions/64907513/activate-test-coverage-for-python-code-on-gitlab
     # Unit test reports (JUnit): https://docs.gitlab.com/ee/ci/testing/unit_test_reports.html#how-to-set-it-up
     #                            https://docs.pytest.org/en/7.1.x/how-to/output.html#creating-junitxml-format-files
-    #- pytest --cov=symtensor --cov-config=.coveragerc --junitxml=rspec.xml
-    #- coverage xml -o coverage.xml
-    - coverage run -m pytest
+    # Note that running `pytest --cov=symtensor` works locally but not in the CI image
+    - coverage run -m pytest --junitxml=rspec.xml
     - coverage report
     - coverage xml
   coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
