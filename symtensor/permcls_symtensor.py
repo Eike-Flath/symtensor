@@ -550,7 +550,8 @@ class PermClsSymmetricTensor(SymmetricTensor):
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Optional[Dict[Union[Tuple[int,...], str],
                                      Array[float,1]]]=np.float64(0),
-                 dtype: Union[None,str,DType]=None):
+                 dtype: Union[None,str,DType]=None, 
+                 symmetrize: bool=False,):
         """
         Parameters
         ----------
@@ -560,7 +561,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
            If only `data` is provided, dtype is inferred from the data.
            If only `dtype` is provided, it determines the data dtype.
         """
-        super().__init__(rank=rank, dim=dim, data=data, dtype=dtype)
+        super().__init__(rank=rank, dim=dim, data=data, dtype=dtype, symmetrize = symmetrize)
         # Sets rank, dim
         # Calls _validate_data
         # Sets _dtype

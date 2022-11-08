@@ -63,7 +63,7 @@ from scityping.torch import TorchTensor
 # import symtensor.utils as utils 
 
 # %% tags=["active-py", "remove-cell"]
-# #Script only imports
+# Script only imports
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
@@ -442,7 +442,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
                   for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
         return out
-                        
+
 
 # %% [markdown]
 # # Tensor addition
@@ -552,7 +552,6 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
 # The generalization of the scheme outlined above is straightforward.
 
 # %%
-### Algebra ###
 @DecompSymmetricTensor.implements_ufunc(np.add)
 def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
     #check if compatible
@@ -591,6 +590,21 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
     else: 
         raise NotImplementedError
 
+
+
+# %%
+@DecompSymmetricTensor.implements_ufunc(np.multiply)
+def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor: 
+    #check if compatible
+    if not isinstance(other, float) or isinstance(other, int):
+        if isinstance(self, float) or isinstance(self, int):
+            return symmetric_multiply(other, self)
+        else:
+            raise TypeError("Can only multiply DecompSymmetricTensors by int or float")
+    
+    out = self.copy()
+    out.weights *= other
+    return out
 
 
 # %% [markdown]
@@ -837,7 +851,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                 return out
             else: 
                 #second tensor gets completely consumed
-                out.multiplicities = (self.multiplicities[0],)
+                out.multiplicities = (self.multiplicities[0]-1,)
                 out.factors = self.factors 
                 #equivalent to \nu in desc. above
                 out.weights = torch.einsum('m,n,mj,nj->m', \
