@@ -614,6 +614,7 @@ if __name__ == "__main__":
 #
 
     # %%
+    #fully decomposed tensors
     d = 2
     for r in range(2,4): 
         tensor_1 = two_comp_test_tensor(d,r)
@@ -641,6 +642,20 @@ if __name__ == "__main__":
             elif tensor_1.rank+tensor_2.rank == 4:
                 assert torch.allclose(test_tensor_141, 
                                       torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2))
+
+    # %%
+    #partially decomposed tensors
+    for r in range(2,4): 
+        tensor_1 = two_factor_test_tensor(d,r)
+        for r_1 in range(2,4):
+            tensor_2 = two_comp_test_tensor(d,r_1)
+            #Contract over first and last indices:
+            test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
+            dense_tensor_14 = utils.symmetrize(np.tensordot(
+                tensor_1.todense(), tensor_2.todense(), axes=1 ))
+            print(test_tensor_14.todense(), \'' dense_tensor_14)
+            assert np.allclose(test_tensor_14.todense(), dense_tensor_14)
+
 
 
 

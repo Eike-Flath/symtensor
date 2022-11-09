@@ -960,39 +960,124 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
         raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
     if not self.dim == other.dim: 
         raise ValueError("Tensor dimension must match.")
-    if not self.num_indep_factors==1:
-        raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
+    if not self.num_indep_factors==1 and  axes >1:
+        raise NotImplementedError("Double contraction is currently only available for fully decomposed tensors")
     if not other.num_indep_factors==1:
         raise NotImplementedError("Tensordot is currently only available for fully decomposed tensors")
-    if other.multiplicities[0] > self.multiplicities[0]: 
-        return np.tensordot(other,self, axes = axes)
     
     if axes ==1:
-        if self.multiplicities[0]>1:
-            out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
-            if other.multiplicities[0]>1:
-                out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
+        #fully decomp tensors 
+        if self.num_indep_factors==1:
+            if other.multiplicities[0] > self.multiplicities[0]: 
+                return np.tensordot(other,self, axes = axes)
+            if self.multiplicities[0]>1:
+                out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
+                if other.multiplicities[0]>1:
+                    out.multiplicities = (self.multiplicities[0]-1,other.multiplicities[0]-1)
+                    out.factors = torch.cat((self.factors , other.factors ), 0) 
+                    out.weights = torch.zeros((self.num_factors + other.num_factors,
+                                                   self.num_factors + other.num_factors)) 
+                    #equivalent to \nu in desc. above
+                    out.weights[:self.num_factors,self.num_factors:] = torch.einsum('m,n,mj,nj->mn', \
+                                                self.weights, other.weights, self.factors, other.factors)
+                    return out
+                else: 
+                    #second tensor gets completely consumed
+                    out.multiplicities = (self.multiplicities[0]-1,)
+                    out.factors = self.factors 
+                    #equivalent to \nu in desc. above
+                    out.weights = torch.einsum('m,n,mj,nj->m', \
+                                               self.weights, other.weights, 
+                                               self.factors, other.factors)
+                    return out
+            elif self.multiplicities[0]==1:
+                assert other.multiplicities[0] <=1
+                out = torch.einsum('m,n,mj,nj->',self.weights, other.weights, 
+                                  self.factors, other.factors)
+                return out
+        #partially decomp tensor and fully decomp tensor
+        elif self.num_indep_factors ==1 and other.num_indep_factors > 1:
+            return symmetric_tensordot(other,self)
+        elif self.num_indep_factors >1 and other.num_indep_factors ==1: 
+            # in symmetrized version, must sum over all possible arrangements of factors. 
+            # contraction therefore happens with each factor multiple times, according to which factor 
+            # is in last position.
+            # Therefore: do contraction with each factor and weight with multiplicity of factor /sum multiplicites.
+            out_tensors = []
+            for i,m in enumerate(self.multiplicities):
+                out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
                 out.factors = torch.cat((self.factors , other.factors ), 0) 
-                out.weights = torch.zeros((self.num_factors + other.num_factors,
-                                               self.num_factors + other.num_factors)) 
-                #equivalent to \nu in desc. above
-                out.weights[:self.num_factors,self.num_factors:] = torch.einsum('m,n,mj,nj->mn', \
-                                            self.weights, other.weights, self.factors, other.factors)
-                return out
-            else: 
-                #second tensor gets completely consumed
-                out.multiplicities = (self.multiplicities[0]-1,)
-                out.factors = self.factors 
-                #equivalent to \nu in desc. above
-                out.weights = torch.einsum('m,n,mj,nj->m', \
-                                           self.weights, other.weights, 
-                                           self.factors, other.factors)
-                return out
-        elif self.multiplicities[0]==1:
-            assert other.multiplicities[0] <=1
-            out = torch.einsum('m,n,mj,nj->',self.weights, other.weights, 
-                              self.factors, other.factors)
-            return out
+                letters = 'abdcefghjklmnopqrstuvwx' # keep i,y,z seperate
+                if self.num_indep_factors > len(letters): 
+                    raise NotImplemenetedError('absurdly many factors')
+
+                indices_before_i = letters[:i]
+                if self.num_indep_factors > i+1:
+                    indices_after_i = letters[i+1:self.num_indep_factors]
+                else: 
+                    indices_after_i = ''
+                
+                #contraction leaves all indices intact
+                if self.multiplicities[i]>1 and other.multiplicities[0] >1:
+                    out.multiplicities = self.multiplicities[:i] \
+                                        + (self.multiplicities[i]-1,) \
+                                        + self.multiplicities[i+1:] \
+                                        + (other.multiplicities[0]-1,)
+                    
+                    indices_result = indices_before_i+'i'+ indices_after_i +'z'
+                    indices_in = indices_before_i + 'i'  + indices_after_i 
+                    out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    out.weights[(slice(self.num_factors),)*(self.num_indep_factors)+(slice(self.num_factors,None),)] =  \
+                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, self.factors, other.factors, other.weights)
+                #contraction consumes factor
+                if self.multiplicities[i]==1 and other.multiplicities[0] >1:
+                    out.multiplicities = self.multiplicities[:i] \
+                                        + self.multiplicities[i+1:] \
+                                        + (other.multiplicities[0]-1,)
+                    
+                    indices_result = indices_before_i+ indices_after_i +'z'
+                    indices_in = indices_before_i + 'i'  + indices_after_i 
+                    out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    out.weights[(slice(self.num_factors),)*(self.num_indep_factors-1)+(slice(self.num_factors,None),)] =  \
+                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, self.factors, other.factors, other.weights)
+                #contraction consumes factor of other
+                if self.multiplicities[i]>1 and other.multiplicities[0] ==1:
+                    out.multiplicities = self.multiplicities[:i] \
+                                        + (self.multiplicities[i]-1,) \
+                                        + self.multiplicities[i+1:] 
+                    out.factors = self.factors
+                    
+                    indices_result = indices_before_i+'i'+ indices_after_i 
+                    indices_in = indices_before_i + 'i'  + indices_after_i 
+                    out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    out.weights[(slice(self.num_factors),)*(self.num_indep_factors)] =  \
+                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, self.factors, other.factors, other.weights)
+                #contraction consumes factor and factor of other
+                if self.multiplicities[i]==1 and other.multiplicities[0] ==1:
+                    out.multiplicities = self.multiplicities[:i] \
+                                        + self.multiplicities[i+1:] 
+                    out.factors = self.factors 
+                    
+                    indices_result = indices_before_i+ indices_after_i 
+                    indices_in = indices_before_i + 'i'  + indices_after_i 
+                    out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    out.weights[(slice(self.num_factors),)*(self.num_indep_factors-1)] =  \
+                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, self.factors, other.factors, other.weights)
+                 #weight with relative number of occurences in symmetrization sum
+                out_tensors += [np.multiply(out,m*1.0/self.rank)]
+            
+            #sum up to symmetrized result
+            result = out_tensors[0]
+            for tensor in out_tensors[1:]: 
+                result = result + tensor
+            return result 
+        else:
+            raise NotImplementedError("Contraction of two partially decomposed tensors not yet possible")
+            
     #contraction over two or more indices
     elif axes >=2: 
         assert self.rank >=2, "Can only do double contraction with rank >= 2 tensor."
@@ -1008,6 +1093,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
             lambda_without_weighfactors = torch.einsum('mj,nj->mn', self.factors, other.factors)**axes
             out.weights[:self.num_factors,self.num_factors:] = \
                 torch.einsum('m,n,mn->mn', self.weights, other.weights, lambda_without_weighfactors)
+            return out
             
         elif other.multiplicities[0] == axes: 
             if self.multiplicities[0] > axes:
@@ -1019,14 +1105,14 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                 lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
                                                            self.factors, other.factors)**axes
                 out.weights = torch.einsum('m,n,mn->m', self.weights, other.weights, lambda_without_weighfactors)
-            if self.multiplicities[0] == axes:
+                return out
+            elif self.multiplicities[0] == axes:
                 # structure of contraction \sum_{jk} A_jk B_jk
                 # result is therefore a float.
                 lambda_without_weighfactors = torch.einsum('mj,nj->mn', \
                                                            self.factors, other.factors)**axes
                 out = torch.einsum('m,n,mn->', self.weights, other.weights, lambda_without_weighfactors)
-            
-    return out
+                return out
 
 
 # %% [markdown]
