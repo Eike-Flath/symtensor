@@ -10,7 +10,7 @@ from scipy.special import binom
 # import symtensor.utils as utils 
 
 # %% tags=["active-py", "remove-cell"]
-# Script only imports
+Script only imports
 from .decomp_symmtensor import DecompSymmetricTensor
 from . import utils
 
@@ -25,6 +25,7 @@ from . import utils
 if __name__ == "__main__":
     # instantiation of vector
     A = DecompSymmetricTensor(rank = 1, dim =10) 
+    print(type(A).mro())
     assert A.rank == 1
     assert A.dim == 10
     
@@ -403,6 +404,66 @@ if __name__ == "__main__":
             assert torch.allclose(C.todense(),A.todense())== np.allclose(C,A)
 
 # %% [markdown]
+# ### Splitting up factors (changing multiplicities)
+# #### Splitting off single factors
+
+    # %%
+    d = 3
+    r =3
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    B.split_factors(0)
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
+    assert B.multiplicities == (2,1)
+    
+    d = 3
+    r = 3
+    A = two_factor_test_tensor(d,r,q=1)
+    B = A.copy()
+    B.split_factors(0)
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
+    assert B.multiplicities == (1,1,1)
+    
+    d = 3
+    r = 5
+    A = three_factor_test_tensor(d,r,q=2)
+    B = A.copy()
+    B.split_factors(1)
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-4)
+    assert B.multiplicities == (1,1,1,2)
+
+# %% [markdown]
+# #### Matching up multiplicities between decomposed Tensors
+
+    # %%
+    d = 3
+    r =3
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    B.match_multiplicities((2,1))
+    assert torch.allclose(A.todense(), B.todense())
+    assert B.multiplicities == (2,1)
+    assert A.find_common_multiplicities(B) == (2,1)
+    
+    d = 3
+    r = 4
+    A = two_factor_test_tensor(d,r,q=2)
+    B = A.copy()
+    B.match_multiplicities((2,1,1))
+    assert torch.allclose(A.todense(), B.todense(),atol = 1e-5)
+    assert B.multiplicities == (2,1,1)
+    assert A.find_common_multiplicities(B) == (2,1,1)
+    
+    d = 3
+    r = 5
+    A = three_factor_test_tensor(d,r,q=2)
+    B = A.copy()
+    B.match_multiplicities((1,1,1,2))
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-4)
+    assert B.multiplicities == (1,1,1,2)
+    assert A.find_common_multiplicities(B) == (1,1,1,2)
+
+# %% [markdown]
 # ## Addition
 
 # %% [markdown]
@@ -423,7 +484,7 @@ if __name__ == "__main__":
     B_2 = two_comp_test_tensor(d,r)
     C_2 = np.add(A_2,B_2)
 
-    assert torch.allclose(C_2.todense(), A_2.todense()+B_2.todense())
+    assert torch.allclose(C_2.todense(), A_2.todense()+B_2.todense(), atol = 1e-5)
 
 
 # %% [markdown]
@@ -451,6 +512,27 @@ if __name__ == "__main__":
     B_3 = two_factor_test_tensor(d,r, q = 2)
     C_3 = A_3+B_3
     assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
+
+# %% [markdown]
+# third, decomposed tensors with nonmatching multiplicites
+
+    # %%
+    d = 5
+    r = 3
+    
+    A_1 = two_comp_test_tensor(d,r)
+    B_1 = two_factor_test_tensor(d,r, q = 1)
+    C_1 = A_1+B_1
+    assert torch.allclose(C_1.todense(),A_1.todense()+B_1.todense(), atol = 1e-5)
+    
+    d = 5
+    r = 4
+    
+    A_2 = two_comp_test_tensor(d,r)
+    B_2 = three_factor_test_tensor(d,r, q = 1)
+    C_2 = A_2+B_2
+    assert torch.allclose(C_2.todense(),A_2.todense()+B_2.todense(), atol = 1e-5)
+
 
 # %% [markdown]
 # ### outer product
@@ -592,8 +674,7 @@ if __name__ == "__main__":
 # %% [markdown]
 # ### Multinomial 
 
-# %%
-    
+    # %%
     d = 3
     r =3
     A = two_comp_test_tensor(d,r)
@@ -618,3 +699,31 @@ if __name__ == "__main__":
         x[i] = 1
         assert torch.isclose(A[(i,)*r], A.multinomial(x))
 
+
+# %%
+## Test split factors
+
+    # %%
+    d = 3
+    r =3
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    B.split_factors(0)
+    assert torch.allclose(A.todense(), B.todense())
+    assert B.multiplicities == (2,1)
+    
+    d = 3
+    r = 3
+    A = two_factor_test_tensor(d,r,q=1)
+    B = A.copy()
+    B.split_factors(0)
+    assert torch.allclose(A.todense(), B.todense())
+    assert B.multiplicities == (1,1,1)
+    
+    d = 3
+    r = 5
+    A = three_factor_test_tensor(d,r,q=2)
+    B = A.copy()
+    B.split_factors(1)
+    assert torch.allclose(A.todense(), B.todense())
+    assert B.multiplicities == (1,1,1,2)

@@ -208,22 +208,24 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         
     @property
     def factors(self):
-        """Weight of each component"""
+        """Factors in outer product"""
         return self._factors
 
     @factors.setter
     def factors(self, value):
-        """Weight of each component"""
+        """Factors in outer product"""
         self._factors = value
     
     @property
     def multiplicities(self):
-        """Weight of each component"""
+        """Number of repeats of factors 
+        in outer product"""
         return self._multiplicities
 
     @multiplicities.setter
     def multiplicities(self, value):
-        """Weight of each component"""
+        """Number of repeats of factors 
+        in outer product"""
         self._multiplicities = value
     
     @property
@@ -261,6 +263,128 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         else: 
             return len(self.multiplicities)
         
+    
+    def split_factors(self, pos): 
+        """
+        Create equivalent tensor with different
+        multiplicities, where the `pos`th multiplicity 
+        is split of. 
+        
+        Inputs: 
+        =======
+        pos: int
+            which multiplicity to split
+        
+        E.g. 
+        mult_old = (2,1,1)
+        pos = 0
+        -> new_multiplicity = (1,1,1,1)
+        """
+        assert self.multiplicities[pos] > 1, "cannot split factor with multiplicity one"
+        
+        letters = 'abdcefghijklmnopqrstuvwxy' # keep z seperate
+        if self.num_indep_factors > len(letters): 
+            #absurdly many factors
+            raise NotImplemenetedError
+        
+        #update weights to incorporate multiplicity split
+        indices_before_pos = letters[:pos+1]
+        if self.num_indep_factors > pos+1:
+            indices_after_pos = letters[pos+1:self.num_indep_factors]
+        else: 
+            indices_after_pos = ''
+        indices_result = indices_before_pos + 'z' + indices_after_pos
+        indices_in = indices_before_pos + indices_after_pos
+        indices_delta = indices_before_pos[-1] + 'z'
+        delta_iz = torch.eye(self.num_factors)
+    
+        self.weights = torch.einsum(indices_in +', '+ indices_delta + '-> ' + indices_result, 
+                                   self.weights, delta_iz )
+        
+        
+        new_multiplicities = self.multiplicities[:pos] \
+                            + (self.multiplicities[pos]-1,1,) \
+                            + self.multiplicities[pos+1:]
+        self.multiplicities = new_multiplicities
+        
+        #TODO: make splitting off of factor with multiplicity >1
+                    #possible 
+    
+    def match_multiplicities(self, mult): 
+        """
+        Create equivalent tensor with
+        multiplicities equal to `mult`.
+        
+        Inputs: 
+        =======
+        m: tuple[int]
+            new multiplicity
+        
+        """
+        assert sum(mult)== self.rank, "new multiplicity does not match rank"
+        assert len(mult) >= self.num_indep_factors, "can only increase number of independent factors"
+        
+        max_num_splits = 10 #safeguard against too many splits
+        num_splits = 0
+        while self.multiplicities != mult and num_splits < max_num_splits:
+            for i,m in enumerate(mult):
+                if self.multiplicities[i] > m: 
+                    self.split_factors(i)
+                    num_splits += 1
+                    break
+                elif self.multiplicities[i] == m:
+                    continue
+                elif self.multiplicities[i] < m:
+                    raise ValueError("Can only reduce individual multiplicity factors, not increase them")
+        if num_splits == max_num_splits: 
+            raise ValueError("maximum number of splits reached. Reduce number of independent factors")
+    
+    def find_common_multiplicities(self,other):
+        """
+        Find min. number of multiplicities 
+        such that multiplicities are equal.
+        
+        Inputs: 
+        =======
+        other: DecompSymmetricTensor
+            Tensor to which multiplicities
+            should be matched.
+        
+        Returns: 
+        ========
+        m: tuple[int]
+            new multiplicity
+        
+        """
+        assert isinstance(other, DecompSymmetricTensor), "can only match multiplicities between decomp tensors"
+        if not self.rank == other.rank: 
+            raise ValueError("Tensor ranks must be equal.")
+            
+        if self.multiplicities == other.multiplicities:
+            return self.multiplicities
+        elif other.num_indep_factors < self.num_indep_factors:
+            return other.find_common_multiplicities(self)
+        else:
+            max_num_splits = 10 #safeguard against too many splits
+            num_splits = 0
+            new_mult = other.multiplicities
+            while len(new_mult) < self.num_indep_factors and num_splits < max_num_splits:
+                print(new_mult)
+                for i,m in enumerate(self.multiplicities):
+                    if m == new_mult[i]: 
+                        continue
+                    if self.multiplicities[i] > new_mult[i]: 
+                        new_mult = new_mult[:i] \
+                            + (new_mult[i]-1,1,) \
+                            + new_mult[i+1:]
+                        num_splits += 1
+                        break
+            if num_splits == max_num_splits: 
+                raise ValueError("maximum number of splits reached. Reduce number of independent factors")
+            else: 
+                return new_mult
+                        
+                
                 
     
     def copy(self):
@@ -562,7 +686,13 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
     if not self.dim == other.dim: 
         raise ValueError("Tensor dimension must match.")
     if not self.multiplicities == other.multiplicities:
-        raise ValueError("Component multiplicities must match.")
+        #split factors such that multiplicities match
+        new_multiplicities = self.find_common_multiplicities(other)
+        self_1 = self.copy()
+        self_1.match_multiplicities(new_multiplicities)
+        other_1 = other.copy()
+        other_1.match_multiplicities(new_multiplicities)
+        return symmetric_add(self_1, other_1)
     
     out = DecompSymmetricTensor(rank = self.rank, dim = self.dim)
     out.factors = torch.cat((self.factors , other.factors ), 0) 
