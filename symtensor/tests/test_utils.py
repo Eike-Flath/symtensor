@@ -11,6 +11,7 @@
 
 # %%
 import pytest
+import math
 import numpy as np
 import torch
 
@@ -18,6 +19,9 @@ import torch
 import symtensor as st
 from symtensor import utils
 import symtensor.torch_symtensor
+
+# %% [markdown]
+# ## `symmetrize`
 
 # %%
 def test_symmetrize():
@@ -54,3 +58,28 @@ def test_symmetrize():
 
 # %% tags=["active-ipynb"]
 # test_symmetrize()
+
+# %% [markdown]
+# ## Combinatorics
+#
+# The two tests below check the functions `utils.get_permclass_size`, `utils.get_permclass_multiplicity` and `utils._perm_classes`,
+# by verifying:
+# - That the permutation classes form a partition of tensor indices: the sum of their class sizes equals the total number of independent components in a symmetric tensor, which is given by
+#   $$\binom{d + r - 1}{r}\,.$$
+#   This is a well-known expression; it can be found for example [here](http://www.physics.mcgill.ca/~yangob/symmetric%20tensor.pdf).
+# - The identity
+#   $$\sum_\hat{σ} s_\hat{σ} = d^r\,,$$
+#   where $\hat{σ}$ is a permutation class and $s_{\hat{σ}}$ the size of that class.
+#
+
+# %%
+def test_permclass_size():
+    for r in range(9):
+        for d in [0, 2, 10, 400]:
+            assert (sum(utils.get_permclass_size(σcls, d)
+                        for σcls in utils._perm_classes(r))
+                    == math.prod(range(d, d+r)) / math.factorial(r))
+
+            assert (sum(utils.get_permclass_size(σcls, d) * utils.get_permclass_multiplicity(σcls)
+                        for σcls in utils._perm_classes(r))
+                    == d**r)

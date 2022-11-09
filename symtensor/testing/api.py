@@ -29,20 +29,22 @@
 # **Important:** In order to support the aforementioned dual usage, **all code cells must be indented**. This ensures that when consumed as a script, all the tests are part of the `SymTensorAPI` class.
 
 # %%
-import numpy as np
-
-# %%
-import pytest
-from .utils import does_not_warn
+import abc
 from collections import Counter
 import itertools
 import math
-from tqdm.auto import tqdm
 from typing import Generator, Type
+
+import numpy as np
+from tqdm.auto import tqdm
+
+import pytest
+# %%
 
 import symtensor as st
 from symtensor import SymmetricTensor
 from symtensor import utils, symalg
+from symtensor.testing.utils import does_not_warn
 # For serialization test
 from scityping import Serializable
 from scityping.numpy import Array, DType
@@ -57,8 +59,9 @@ class SymTensorAPI:
             if d <= max_dim and r <= max_rank:
                 A = SymTensor(rank=r, dim=d)
                 # Assign some values so we aren’t just testing with a zero vector
-                A["i"*r] = np.random.normal(size=d)
-                A["i"*(r//2) + "j"*(r-r//2)] = np.random.normal(size=d)
+                A["i"*r] = np.random.normal(size=utils._get_permclass_size((r,), d))
+                ci = r//2; cj = r - r//2
+                A["i"*ci + "j"*cj] = np.random.normal(size=utils._get_permclass_size((ci, cj), d))
                 yield A
 
     @pytest.fixture
@@ -93,8 +96,10 @@ class SymTensorAPI:
 
 # %% [markdown]
 # Initializing with data.
+# (Marked as an abstract test because it must be specialized for each data format)
 
     # %%
+    @abc.abstractmethod
     def test_initialization_with_data(self, SymTensor):
         
         data = np.array([[1, 2],[2, 1]])
@@ -102,17 +107,29 @@ class SymTensorAPI:
         # Init with scalar
         A = SymTensor(rank=2, dim=2, data=1., dtype=np.int16)
         assert A.dtype == "int16"
+        # vvv SPECIFY TEST IN SUBCLASS vvv
         assert np.array_equal(A._data, np.array([[1,1],[1,1]]))
 
         # Init with ndarray
         A = SymTensor(rank=2, dim=2, data=data)
         assert A.dtype == data.dtype
+        # vvv SPECIFY TEST IN SUBCLASS vvv
         assert np.array_equal(A._data, data)
 
         # Init with list
         A = SymTensor(rank=2, dim=2, data=data.tolist(), dtype=float)
         assert A.dtype == "float64"
+        # vvv SPECIFY TEST IN SUBCLASS vvv
         assert np.array_equal(A._data, data)
+
+# %% [markdown]
+# Illegal initializations
+# (Split from test above since these tests are reusable)
+
+    # %%
+    def test_illegal_initializations(self, SymTensor):
+
+        data = np.array([[1, 2],[2, 1]])
 
         # TypeError if dim or rank are missing
         with pytest.raises(TypeError):
@@ -160,14 +177,24 @@ class SymTensorAPI:
 # `permcls_indep_iter_repindex`
 
     # %%
+    def nested_sort(self, list_of_lists):
+        return sorted([tuple(sorted(l)) for l in list_of_lists])
+
+    # %%
     def test_permcls_indep_iter_repindex(self, SymTensor):
         A33 = SymTensor(rank=3, dim=3, data=None)
         A32 = SymTensor(rank=3, dim=2, data=None)
         A43 = SymTensor(rank=4, dim=3, data=None)
-        assert list(A33.permcls_indep_iter_repindex('iii'))  == [(0,0,0), (1,1,1), (2,2,2)]
-        assert list(A32.permcls_indep_iter_repindex('iij'))  == [(0,0,1), (0,1,1)]
-        assert list(A33.permcls_indep_iter_repindex('iij'))  == [(0, 0, 1), (0, 0, 2), (0, 1, 1), (0, 2, 2), (1, 1, 2), (1, 2, 2)]
-        assert list(A43.permcls_indep_iter_repindex('iijj')) == [(0,0,1,1), (0,0,2,2), (1,1,2,2)]
+        assert self.nested_sort(A33.permcls_indep_iter_repindex('iii'))  == [(0,0,0), (1,1,1), (2,2,2)]
+        assert self.nested_sort(A32.permcls_indep_iter_repindex('iij'))  == [(0,0,1), (0,1,1)]
+        assert self.nested_sort(A33.permcls_indep_iter_repindex('iij'))  == [(0, 0, 1), (0, 0, 2), (0, 1, 1), (0, 2, 2), (1, 1, 2), (1, 2, 2)]
+        assert self.nested_sort(A43.permcls_indep_iter_repindex('iijj')) == [(0,0,1,1), (0,0,2,2), (1,1,2,2)]
+        # permcls_indep_iter_repindex returns a unique index I for each index class
+        A = SymTensor(rank=4, dim=8)
+        assert len(list(A.indep_iter_index())) == len(list(A.indep_iter()))
+        # # TODO: The following asserts could be added to the PermClsSymmetricTensor test
+        # assert len(list(A.indep_iter_index())) == len(list(A.indep_iter())) == A.size
+        # assert len({str(Counter(sorted(idx))) for idx in A.indep_iter_repindex()}) == A.size
 
 
 # %% [markdown]
@@ -177,20 +204,26 @@ class SymTensorAPI:
     def test_permcls_indep_iter_index(self, SymTensor):
         A33 = SymTensor(rank=3, dim=3, data=None)
         A32 = SymTensor(rank=3, dim=2, data=None)
-        assert list(A33.permcls_indep_iter_index('iii')) == [([0], [0], [0]),
-                                                             ([1], [1], [1]),
-                                                             ([2], [2], [2])
-                                                            ]
-        assert list(A32.permcls_indep_iter_index('iij')) == [([0, 0, 1], [0, 1, 0], [1, 0, 0]),
-                                                             ([0, 1, 1], [1, 0, 1], [1, 1, 0])
-                                                            ]
-        assert list(A33.permcls_indep_iter_index('iij')) == [([0, 0, 1], [0, 1, 0], [1, 0, 0]),
-                                                             ([0, 0, 2], [0, 2, 0], [2, 0, 0]),
-                                                             ([0, 1, 1], [1, 0, 1], [1, 1, 0]),
-                                                             ([0, 2, 2], [2, 0, 2], [2, 2, 0]),
-                                                             ([1, 1, 2], [1, 2, 1], [2, 1, 1]),
-                                                             ([1, 2, 2], [2, 1, 2], [2, 2, 1])
-                                                            ]
+        assert self.nested_sort(A33.permcls_indep_iter_index('iii')) == [
+            ([0], [0], [0]),
+            ([1], [1], [1]),
+            ([2], [2], [2])
+        ]
+        assert self.nested_sort(A32.permcls_indep_iter_index('iij')) == [
+            ([0, 0, 1], [0, 1, 0], [1, 0, 0]),
+            ([0, 1, 1], [1, 0, 1], [1, 1, 0])
+        ]
+        assert self.nested_sort(A33.permcls_indep_iter_index('iij')) == [
+            ([0, 0, 1], [0, 1, 0], [1, 0, 0]),
+            ([0, 0, 2], [0, 2, 0], [2, 0, 0]),
+            ([0, 1, 1], [1, 0, 1], [1, 1, 0]),
+            ([0, 2, 2], [2, 0, 2], [2, 2, 0]),
+            ([1, 1, 2], [1, 2, 1], [2, 1, 1]),
+            ([1, 2, 2], [2, 1, 2], [2, 2, 1])
+        ]
+        A = SymTensor(rank=4, dim=8)
+        assert all(len(list(A.permcls_indep_iter_index(σcls))) == len(list(A.permcls_indep_iter(σcls)))
+                   for σcls in A.perm_classes)
 
 
 # %% [markdown]
@@ -200,8 +233,8 @@ class SymTensorAPI:
     def test_indep_iter_repindex(self, SymTensor):
         A33 = SymTensor(rank=3, dim=3, data=None)
         A32 = SymTensor(rank=3, dim=2, data=None)
-        assert list(A32.indep_iter_repindex())  == [(0,0,0), (0,0,1), (0,1,1), (1,1,1)]
-        assert list(A33.indep_iter_repindex())  == [(0,0,0), (0,0,1), (0,0,2), (0,1,1), (0,1,2), (0,2,2),
+        assert self.nested_sort(A32.indep_iter_repindex())  == [(0,0,0), (0,0,1), (0,1,1), (1,1,1)]
+        assert self.nested_sort(A33.indep_iter_repindex())  == [(0,0,0), (0,0,1), (0,0,2), (0,1,1), (0,1,2), (0,2,2),
                                                     (1,1,1), (1,1,2), (1,2,2), (2,2,2)]
 
 
@@ -271,7 +304,7 @@ class SymTensorAPI:
 
     # %%
     def test_σcls_assignment(self, SymTensor):
-        A = SymTensor(3, 5)
+        A = SymTensor(3, 5, data=np.arange(5**3, dtype=np.int16).reshape(5,5,5), symmetrize=True)
         assert len(A['iij']) == utils.get_permclass_size('iij', A.dim)
 
         b = 0

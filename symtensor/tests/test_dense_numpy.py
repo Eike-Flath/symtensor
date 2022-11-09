@@ -14,6 +14,7 @@
 
 # %%
 import pytest
+import numpy as np
 
 from symtensor.dense_symtensor import (
     DenseSymmetricTensor, get_index_representative)
@@ -74,8 +75,34 @@ class TestDenseSymtensorAPI(SymTensorAPI):
 # %% [markdown]
 # Initializing with data.
 
+    # %%
+    def test_initialization_with_data(self, SymTensor):
+        
+        data = np.array([[1, 2],[2, 1]])
+
+        # Init with scalar
+        A = SymTensor(rank=2, dim=2, data=1., dtype=np.int16)
+        assert A.dtype == "int16"
+        assert np.array_equal(A._data, np.array([[1,1],[1,1]]))
+
+        # Init with ndarray
+        A = SymTensor(rank=2, dim=2, data=data)
+        assert A.dtype == data.dtype
+        assert np.array_equal(A._data, data)
+
+        # Init with list
+        A = SymTensor(rank=2, dim=2, data=data.tolist(), dtype=float)
+        assert A.dtype == "float64"  # When `data` doesn’t provide dtype, default is float64
+        assert np.array_equal(A._data, data)
+
+# %% tags=["active-ipynb", "remove-input"]
+#     run_test(test_initialization_with_data)
+
+# %% [markdown]
+# Illegal initializations
+
 # %% tags=["remove-input", "active-ipynb"]
-#     show_test(API.test_initialization_with_data)
+#     show_test(API.test_illegal_initializations)
 
 # %% [markdown]
 # ## Iteration

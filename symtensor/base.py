@@ -425,7 +425,7 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
                 # the keys will be strings (see `Data.json_encoder`)
                 data = {literal_eval(k) if isinstance(k, str) else k: v  # By design, `literal_eval` is relatively s
                         for k, v in data.items()}
-            data, datadtype, datashape = self._validate_data(data)
+            data, datadtype, datashape = self._validate_data(data, symmetrize)
             assert isinstance(datashape, tuple) and all(isinstance(s, int) for s in datashape), f"{type(self).__qualname__}._validate_data did not return data shape as expected."
 
             ## Consistency checks and inferences requiring `data` be passed ##

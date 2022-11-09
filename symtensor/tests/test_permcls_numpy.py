@@ -10,18 +10,17 @@
 # ---
 
 # %% [markdown]
-# # Testing `DenseTorchSymmetricTensor`
+# # Testing `DenseSymmetricTensor`
 
 # %%
 import pytest
+import numpy as np
 
-from symtensor.torch_symtensor import DenseTorchSymmetricTensor
+from symtensor import utils
+from symtensor.permcls_symtensor import (
+    PermClsSymmetricTensor, get_index_representative, σindex_iter)
 from symtensor.testing.api import SymTensorAPI
 from symtensor.testing.utils import Code, NBTestRunner
-
-# For the overridden test
-import numpy as np
-import torch
 
 
 # %% [markdown] tags=["remove-input"]
@@ -39,11 +38,10 @@ import torch
 # Adding a new format or backend to the test requires only creating a subclass with a name starting with "Test". This class must define the `SymTensor` fixture as returning the symmetric tensor type to test:
 
 # %%
-class TestDenseTorchSymtensorAPI(SymTensorAPI):
+class TestPermClsSymtensorAPI(SymTensorAPI):
     @pytest.fixture
     def SymTensor(self):
-        return DenseTorchSymmetricTensor
-
+        return PermClsSymmetricTensor
 
 # %% [markdown] tags=["remove-input"]
 # In theory the code above is sufficient to run the full battery of standardized API tests on the this SymmetricTensor subclass when running `pytest` on the command line.
@@ -60,9 +58,9 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 # We achieve this by [tagging](https://jupytext.readthedocs.io/en/latest/formats.html#active-and-inactive-cells) them with `"active-ipynb"`.
 
 # %% tags=["active-ipynb", "remove-input"]
-#     API = TestDenseTorchSymtensorAPI()
-#     show_test = NBTestRunner(TestDenseTorchSymtensorAPI, DenseTorchSymmetricTensor, display=True)
-#     run_test = NBTestRunner(TestDenseTorchSymtensorAPI, DenseTorchSymmetricTensor, display=False)
+#     API = TestPermClsSymtensorAPI()
+#     show_test = NBTestRunner(TestPermClsSymtensorAPI, PermClsSymmetricTensor, display=True)
+#     run_test = NBTestRunner(TestPermClsSymtensorAPI, PermClsSymmetricTensor, display=False)
 
 # %% tags=["remove-input", "active-ipynb"]
 #     show_test(API.test_perm_classes)
@@ -71,47 +69,43 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 # ## Instantiation & dtypes
 #
 # Can create SymmetricTensors of `float`, `int` and `bool` types.
-#
-# Test is overridden to change assertions to test against Torch dtypes.
-
-    # %% tags=[]
-    def test_creation_with_dtype(self, SymTensor):
-        assert SymTensor(rank=3, dim=3).dtype == torch.float64
-        assert SymTensor(rank=3, dim=3, dtype=int).dtype == torch.int64
-        assert SymTensor(rank=3, dim=3, dtype=np.int32).dtype == torch.int32
-        assert SymTensor(rank=3, dim=3, dtype=bool).dtype == torch.bool
-        with pytest.raises(TypeError):
-            SymTensor(rank=3, dim=3, dtype=str, data="foo")
 
 # %% tags=["remove-input", "active-ipynb"]
-#     run_test(test_creation_with_dtype)
+#     show_test(API.test_creation_with_dtype)
 
 # %% [markdown]
 # Initializing with data.
-# This test is format, and often backend, specific, and so needs to be overriden
+# This test is format-specific, so needs to be overridden
 
-    # %% tags=[]
+    # %%
     def test_initialization_with_data(self, SymTensor):
         
+        x = 3.14
         data = np.array([[1, 2],[2, 1]])
 
         # Init with scalar
-        A = SymTensor(rank=2, dim=2, data=1., dtype=np.int16)
-        assert A.dtype == torch.int16
-        assert np.array_equal(A._data, np.array([[1,1],[1,1]]))
+        A = SymTensor(rank=2, dim=2, data=x, dtype=np.int16)
+        assert A.dtype == "int16"
+        assert A._data.keys() == {(2,), (1,1)}
+        assert all(np.all(arr == int(x)) for arr in A._data.values())
 
         # Init with ndarray
-        A = SymTensor(rank=2, dim=2, data=data)
-        # NB: A.dtype -> "torch.int16" -> "int16" == str(np.dtype(np.int16))
-        assert str(A.dtype).split(".")[-1] == str(data.dtype)
-        assert np.array_equal(A._data, data)
+        A2 = SymTensor(rank=2, dim=2, data=data)
+        assert A2.dtype == data.dtype
+        assert A2._data.keys() == {(2,), (1,1)}
+        assert np.array_equal(A2._data[(2,)], [1, 1])   # 'ii'
+        assert np.array_equal(A2._data[(1,1)], [2])  # 'ij'
+        assert np.array_equal(A2.todense(), data)
 
         # Init with list
-        A = SymTensor(rank=2, dim=2, data=data.tolist(), dtype=float)
-        assert A.dtype == torch.float64
-        assert np.array_equal(A._data, data)
+        A3 = SymTensor(rank=2, dim=2, data=A2._data, dtype=float)
+        assert A3.dtype == "float64"  # When `data` doesn’t provide dtype, default is float64
+        assert A3._data.keys() == set(utils._perm_classes(A3.rank)) == {(2,), (1,1)}
+        assert np.array_equal(A3._data[(2,)], [1, 1])   # 'ii'
+        assert np.array_equal(A3._data[(1,1)], [2])  # 'ij'
+        assert np.array_equal(A3.todense(), data)
 
-# %% tags=["remove-input", "active-ipynb"]
+# %% tags=["active-ipynb", "remove-input"]
 #     run_test(test_initialization_with_data)
 
 # %% [markdown]
@@ -126,7 +120,7 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 # Test the index iterators.
 
 # %% [markdown]
-# - By default, `DenseTorchSymmetricTensor` gets initialized as a zero tensor.
+# - By default, `DenseSymmetricTensor` gets initialized as a zero tensor.
 # - `flat*` return iterators all $d^r$ values, in the same order as a NumPy array.
 # - `indep_iter*` iterators return $\binom{d + r - 1}{r}$ values
 # - Iteration returns either $\binom{d + r - 1}{r}$ or $d^r$ values (depending on whether it returns permutations of symmetric terms).
@@ -135,14 +129,18 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 
 # %% [markdown]
 # `permcls_indep_iter_repindex`
+#
+# This test is overridden because the order of representative indices is format-dependent.
 
-# %% tags=["remove-input", "active-ipynb"]
+# %% tags=["active-ipynb", "remove-input"]
 #     show_test(API.test_permcls_indep_iter_repindex)
 
 # %% [markdown]
 # `permcls_indep_iter_index`
+#
+# This test is overridden because the order of representative indices is format-dependent.
 
-# %% tags=["remove-input", "active-ipynb"]
+# %% tags=["active-ipynb", "remove-input"]
 #     show_test(API.test_indep_iter_repindex)
 
 # %% [markdown]
@@ -153,19 +151,31 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 
 
 # %% [markdown]
-# ## Indexing & assignment
+# `σindex_iter`
+
+    # %%
+    def test_σindex_iter(self):
+        assert list(σindex_iter((3,), 3))  == [(0,0,0), (1,1,1), (2,2,2)]
+        assert list(σindex_iter((2,1), 2)) == [(0,0,1), (1,1, 0)]
+        assert list(σindex_iter((2,1), 3)) == [(0,0,1), (0,0,2), (1,1,0), (1,1,2), (2,2,0), (2,2,1)]
+        assert list(σindex_iter((2,2), 3)) == [(0,0,1,1), (0,0,2,2), (1,1,2,2)]
 
 # %% [markdown]
-# Test standardization of index class representatives: `get_index_representative` (skipped; [tested with NumPy class](./test_dense_numpy.py)).
+# ## Indexing, assignment, reshaping
 
 # %% [markdown]
-# ```python
-# def test_standardization_indexrep_dense():
-#     assert get_index_representative((2,1,2))         == (1,2,2)
-#     assert get_index_representative((1,1,2))         == (1,1,2)
-#     assert get_index_representative((0,0))           == (0,0)
-#     assert get_index_representative((5,4,3,3,2,1))   == (1,2,3,3,4,5)
-# ```
+# Test standardization of index class representatives: `get_index_representative`
+
+    # %%
+    def test_standardization_indexrep_dense(self):
+        assert get_index_representative((2,1,2))         == (2,2,1)
+        assert get_index_representative((1,1,2))         == (1,1,2)
+        assert get_index_representative((0,0))           == (0,0)
+        assert get_index_representative((5,4,3,3,2,1))   == (3, 3, 1, 2, 4, 5)
+
+
+# %% tags=["active-ipynb", "remove-input"]
+#     run_test(test_standardization_indexrep_dense)
 
 # %% [markdown]
 # Block assignment of already symmetrized data.
@@ -216,7 +226,7 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 # %% tags=["remove-input", "active-ipynb"]
 #     show_test(API.test_serialization)
 
-# %% [markdown] tags=[]
+# %% [markdown]
 # ## Avoiding array coercion
 #
 # `asarray` works as one would expect (converts to dense array by default, does not convert if `like` argument is used).

@@ -287,7 +287,10 @@ class DenseSymmetricTensor(SymmetricTensor):
         # DEVNOTE: Elementwise access of unique indices is >100x faster than
         # iterating over an ndindex and filtering to keep only lexicographically
         # ordered indices; see :doc:`docs/developers/SymmetricTensor/timings.py`
-        A = self._data
+        try:
+            A = self._data
+        except AttributeError:
+            raise RuntimeError("Symmetric tensor was initialized empty. Cannot create the `indep_iter` iterator.")
         for idx in self.indep_iter_repindex():
             yield A[idx]
 
