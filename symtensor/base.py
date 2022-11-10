@@ -1790,6 +1790,17 @@ def result_symtensor(*arrays_and_types) -> Type[SymmetricTensor]:
 # ### Specialization of our own utility functions
 
 # %% [markdown]
+# #### `empty_array`
+#
+# The default backend for `SymmetricTensor` is NumPy arrays. Subclasses for different backends (like `TorchSymmetricTensor`) should redefine this to return an appropriate object.
+
+# %%
+@utils.empty_array_like.register
+def _(like: SymmetricTensor, shape: Tuple[int,...], dtype=None):
+    return np.empty(shape, dtype=dtype)
+
+
+# %% [markdown]
 # #### `symmetrize`
 #
 # Since instances of `SymmetricTensor` are by definition symmetric, we replace

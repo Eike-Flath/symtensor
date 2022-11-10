@@ -108,7 +108,7 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 
         # Init with list
         A = SymTensor(rank=2, dim=2, data=data.tolist(), dtype=float)
-        assert A.dtype == torch.float64
+        assert A.dtype == torch.float64  # When `data` doesn’t provide dtype, default is float64
         assert np.array_equal(A._data, data)
 
 # %% tags=["remove-input", "active-ipynb"]

@@ -390,7 +390,7 @@ class SymTensorAPI:
         
         assert np.array_equal(A, B)
         assert np.allclose(A, B)
-        assert np.all(np.isclose(A, B) == SymTensor(rank=rank, dim=dim, data=True))
+        assert np.array_equal(np.isclose(A, B), SymTensor(rank=rank, dim=dim, data=True))
 
 
 # %% [markdown]

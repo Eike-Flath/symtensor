@@ -544,7 +544,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
     #dim        : int
     #_dtype     : DType
     data_format : ClassVar[str]="PermCls"
-    _data       : Dict[Tuple[int], Union[float, Array[float,1]]]
+    _data       : Dict[Tuple[int,...], Union[float, Array[float,1]]]
 
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
                  data: Optional[Dict[Union[Tuple[int,...], str],
@@ -663,7 +663,8 @@ class PermClsSymmetricTensor(SymmetricTensor):
                              "have the expected format.\nExpected keys to be a subset "
                              f"of: {sorted(utils._perm_classes(self.rank))}\n"
                              f"Received keys:{sorted(data)}")
-        self._data = {k: np.array([], dtype=self._dtype) for k in utils._perm_classes(self.rank)}
+        self._data = {k: utils.empty_array_like(self, (0,), dtype=self._dtype)
+                      for k in utils._perm_classes(self.rank)}
         for k, v in data.items():
             # if np.isscalar(v):
             #     data[k] = v = np.array(v)
@@ -687,17 +688,24 @@ class PermClsSymmetricTensor(SymmetricTensor):
         #rank: int
         #dim: int
         data: Dict[str, Array]  # NB: JSON keys cannot be tuples => convert to str
+        _symtensor_type: ClassVar[Optional[type]]="PermClsSymmetricTensor"  # NB: Data.decode expects a string, in order resolve the forward ref
 
         @staticmethod
         def encode(symtensor: SymmetricTensor):
             return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
-        @staticmethod
-        def decode(data: "SymmetricTensor.Data"):
+        @classmethod
+        def decode(cls, data: "SymmetricTensor.Data"):
+            # Determine the SymmetricTensor name from the string
+            try:
+                import sys
+                symtensor_type = getattr(sys.modules[cls.__module__], cls._symtensor_type)
+            except AttributeError:
+                raise NameError(f"Could not find '{cls._symtensor_type}' in module '{cls.__module__}'.")
             # Invert the conversion tuple -> str that was done in `encode`
             data_dict = {tuple(int(k) for k in re.findall(r"\d+", key_str)): arr
                          for key_str, arr in data.data.items()}
             # Instantiate the expected tensor
-            return PermClsSymmetricTensor(data.rank, data.dim, data_dict)
+            return symtensor_type(data.rank, data.dim, data_dict)
 
     ## Dunder methods ##
 
@@ -835,8 +843,10 @@ class PermClsSymmetricTensor(SymmetricTensor):
                     pass
                 else:
                     # Value is no longer uniform for all positions => need to expand storage from scalar to vector
-                    v = v * np.ones(utils._get_permclass_size(σcls, self.dim),
-                                    dtype=np.result_type(v, value))
+                    # v = v * np.ones(utils._get_permclass_size(σcls, self.dim),
+                    #                 dtype=np.result_type(v, value))
+                    v = v * self._validate_dataarray(  # Not as clean as creating the ones with the correct dtype immediately, but
+                        np.ones(utils._get_permclass_size(σcls, self.dim), dtype="int8"))  # this works with the Torch backend too
                     v[pos] = value
                     self._data[σcls] = v
             else:
@@ -880,7 +890,7 @@ class PermClsSymmetricTensor(SymmetricTensor):
         return self._data.keys()
     def values(self):
         dim = self.dim
-        return [v if len(k) <= dim else np.array([], dtype=self.dtype)
+        return [v if len(k) <= dim else self._validate_dataarray(np.array([]))
                 for k, v in self._data.items()]
     def items(self):
         return [(k, v) for k,v in zip(self.keys(), self.values())]
@@ -974,6 +984,23 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
     with utils.make_array_like(PermClsSymmetricTensor(0,0), np.core.einsumfunc):
         return np.core.einsumfunc.einsum_path.__wrapped__(
             *operands, optimize=optimize, einsum_call=einsum_call)
+
+# %% [markdown]
+# #### `array_equal()`
+#
+# Overriden to allow for scalars in the underlying arrays: underlying arrays not having the same shape is fine
+
+# %%
+from symtensor import base
+
+@PermClsSymmetricTensor.implements(np.array_equal)
+def array_equal(a, b) -> bool:
+    """
+    Return True if `a` and `b` are both `SymmetricTensors` and all their
+    elements are equal. C.f. `numpy.array_equal`.
+    """
+    return np.shape(a) == np.shape(b) and base._array_compare(
+        lambda x, y: np.all(x == y), a , b)
 
 # TODO
 #@PermClsSymmetricTensor.implements(np.einsum)
@@ -1131,37 +1158,36 @@ def einsum_path(*operands, optimize='greedy', einsum_call=False):
 # ## Memory footprint
 # Memory required to store tensors, as a percentage of an equivalent tensor with dense storage.
 
-# %%
-if __name__ == "__main__":
-    import sys
-    curves = []
-    for rank in [1, 2, 3, 4, 5, 6]:
-        points = []
-        for dim in [1, 2, 3, 4, 6, 8, 10, 20, 40, 80, 100]:
-            # Dense size (measured in bytes; assume 64-bit values)
-            dense = dim**rank*8 + 104  # 104: fixed overhead for arrays
-            # SymmetricTensor size
-            A = PermClsSymmetricTensor(rank=rank, dim=dim)
-            # For dicts, getsizeof oly counts the number of keys/value pairs,
-            # not the size of either of them.
-            sym = sys.getsizeof(A)
-            sym += sum(sys.getsizeof(k) + sys.getsizeof(v) for k,v in A.__dict__.items())
-            sym += sum(sys.getsizeof(k) for k in A._data)
-            sym += sum(utils.get_permclass_size(σcls, A.dim)*8 + 104 for σcls in A.perm_classes)
-            # Append data point
-            points.append((dim, sym/dense))
-        curves.append(hv.Curve(points, kdims=['dimensions'], vdims=['size (rel. to dense)'],
-                               label=f"rank = {rank}"))
-        if rank > 4:
-            curves[-1].opts(muted=True)
-    fig = hv.Overlay(curves) * hv.HLine(1)
-    fig.opts(hv.opts.HLine(color='grey', line_dash='dashed', line_width=2, alpha=0.5),
-             hv.opts.Curve(width=500, logy=True, logx=True),
-             hv.opts.Overlay(legend_position='right'))
-    display(fig)
-
-
-
+# %% tags=["active-ipynb"]
+# import sys
+# curves = []
+# for rank in [1, 2, 3, 4, 5, 6]:
+#     points = []
+#     for dim in [1, 2, 3, 4, 6, 8, 10, 20, 40, 80, 100]:
+#         # Dense size (measured in bytes; assume 64-bit values)
+#         dense = dim**rank*8 + 104  # 104: fixed overhead for arrays
+#         # SymmetricTensor size
+#         A = PermClsSymmetricTensor(rank=rank, dim=dim)
+#         # For dicts, getsizeof oly counts the number of keys/value pairs,
+#         # not the size of either of them.
+#         sym = sys.getsizeof(A)
+#         sym += sum(sys.getsizeof(k) + sys.getsizeof(v) for k,v in A.__dict__.items())
+#         sym += sum(sys.getsizeof(k) for k in A._data)
+#         sym += sum(utils.get_permclass_size(σcls, A.dim)*8 + 104 for σcls in A.perm_classes)
+#         # Append data point
+#         points.append((dim, sym/dense))
+#     curves.append(hv.Curve(points, kdims=['dimensions'], vdims=['size (rel. to dense)'],
+#                            label=f"rank = {rank}"))
+#     if rank > 4:
+#         curves[-1].opts(muted=True)
+# fig = hv.Overlay(curves) * hv.HLine(1)
+# fig.opts(hv.opts.HLine(color='grey', line_dash='dashed', line_width=2, alpha=0.5),
+#          hv.opts.Curve(width=500, logy=True, logx=True),
+#          hv.opts.Overlay(legend_position='right'))
+# display(fig)
+#
+#
+#
 
 # %% [markdown]
 # ### Avoiding array coercion
@@ -1221,30 +1247,28 @@ if __name__ == "__main__":
 # ### Slicing
 # Some tests to see where slowness could come from:
 
-# %%
-if __name__=="__main__":
-    TimeThis.on= True
-    with TimeThis("check slicing speed", lambda name, Δ: None):
-        D = A[0]
+# %% tags=["active-ipynb"]
+# TimeThis.on= True
+# with TimeThis("check slicing speed", lambda name, Δ: None):
+#     D = A[0]
 
 
 # %% [markdown]
 # ### Outer product:
 
-# %%
-if __name__=="__main__":
-    for rank in [3]:
-        for dim in [50]:
-            vect = SymmetricTensor(rank=1, dim=dim)
-            vect['i'] = np.random.rand(dim)
-            print('rank = ', rank)
-            print('dim = ', dim)
-            with TimeThis('pos_dict_creation', output_last_Δ=lambda name, Δ: None):
-                x = pos_dict[rank,dim]
-            with TimeThis('outer product', output_last_Δ=lambda name, Δ: None):
-                # vect x vect x vect ... x vect
-                A = np.multiply.outer([vect,vect], [vect,vect])
-                # Old: vect.outer_product([vect,]*(rank-1))
+# %% tags=["active-ipynb"]
+# for rank in [3]:
+#     for dim in [50]:
+#         vect = SymmetricTensor(rank=1, dim=dim)
+#         vect['i'] = np.random.rand(dim)
+#         print('rank = ', rank)
+#         print('dim = ', dim)
+#         with TimeThis('pos_dict_creation', output_last_Δ=lambda name, Δ: None):
+#             x = pos_dict[rank,dim]
+#         with TimeThis('outer product', output_last_Δ=lambda name, Δ: None):
+#             # vect x vect x vect ... x vect
+#             A = np.multiply.outer([vect,vect], [vect,vect])
+#             # Old: vect.outer_product([vect,]*(rank-1))
 
 
 # %% [markdown]
