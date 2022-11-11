@@ -254,7 +254,9 @@ def symmetrized_op(op, a, b, **kwargs):
         if isinstance(out, DenseSymmetricTensor):
             outdata = out._data
         elif isinstance(out, SymmetricTensor):
-            outdata = np.empty(out.shape)
+            # Special case Torch tensors, since they don’t support `like`
+            # NB: We check the class name, to avoid importing torch unnecessarily (it’s heavy, and may not even be installed)
+            outdata = utils.empty_array_like(out, shape=out.shape, dtype=out.dtype)
         else:
             outdata = out
     else:

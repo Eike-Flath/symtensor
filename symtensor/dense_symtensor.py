@@ -3,11 +3,15 @@
 # jupyter:
 #   jupytext:
 #     formats: py:percent
-#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
+#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
+#   kernelspec:
+#     display_name: Python (symtensor)
+#     language: python
+#     name: symtensor
 # ---
 
 # %% [markdown]
@@ -27,18 +31,6 @@
 
 # %%
 from __future__ import annotations
-
-# %% tags=["remove-cell", "active-py"]
-if __name__ != "__main__":
-    exenv = "module"
-else:
-    exenv = "script"
-
-# %% tags=["remove-cell", "active-ipynb"]
-# exenv = "jbook"
-
-# %% tags=["skip-execution", "remove-cell", "active-ipynb"]
-# exenv = "notebook"
 
 # %%
 import itertools
@@ -144,11 +136,12 @@ class DenseSymmetricTensor(SymmetricTensor):
         # DEVNOTE: Implementations in subclasses can assume that
         #          self.rank, self.dim and self._dtype are available
         if data.dtype != self._dtype:  # Only cast if necessary
-            data = data.astype(self._dtype)
+            data = utils.astype(data, self._dtype)
         if data.shape == (self.dim,)*self.rank:
             self._data = data
         else:
-            self._data = np.empty((self.dim,)*self.rank, dtype=self._dtype)
+            self._data = utils.empty_array_like(
+                self, (self.dim,)*self.rank, dtype=self._dtype)
             self._data[:] = data
         if symmetrize:
             self._data = utils.symmetrize(self._data)
@@ -173,12 +166,13 @@ class DenseSymmetricTensor(SymmetricTensor):
             return (symtensor.rank, symtensor.dim, {str(k): v for k,v in symtensor.items()})
         @classmethod
         def decode(cls, data: "DenseSymmetricTensor.Data"):
-            # Invert the conversion tuple -> str that was done in `encode`
+            # Determine the SymmetricTensor name from the string
             try:
                 import sys
                 symtensor_type = getattr(sys.modules[cls.__module__], cls._symtensor_type)
             except AttributeError:
                 raise NameError(f"Could not find '{cls._symtensor_type}' in module '{cls.__module__}'.")
+            # Invert the conversion tuple -> str that was done in `encode`
             if set(data.data) != {"()"}:
                 raise ValueError(f"Serialized data for a {symtensor_type.__name__} "
                                  "should have only one key: `()`.")
@@ -287,7 +281,10 @@ class DenseSymmetricTensor(SymmetricTensor):
         # DEVNOTE: Elementwise access of unique indices is >100x faster than
         # iterating over an ndindex and filtering to keep only lexicographically
         # ordered indices; see :doc:`docs/developers/SymmetricTensor/timings.py`
-        A = self._data
+        try:
+            A = self._data
+        except AttributeError:
+            raise RuntimeError("Symmetric tensor was initialized empty. Cannot create the `indep_iter` iterator.")
         for idx in self.indep_iter_repindex():
             yield A[idx]
 
@@ -322,7 +319,7 @@ class DenseSymmetricTensor(SymmetricTensor):
 # %% [markdown]
 # ### Array functions
 
-# %%
+# %% [markdown]
 # Implementations of symmetric algebra functions
 #
 # Inherited from SymmetricTensor:
@@ -332,42 +329,45 @@ class DenseSymmetricTensor(SymmetricTensor):
 # - contract_all_indices_with_vector
 # - contract_tensor_list
 
-# %%
-if exenv in {"notebook", "jbook"}:
-    from mackelab_toolbox.utils import TimeThis
-    from symtensor import symalg
+# %% [markdown]
+# ## Timings
 
-    A = DenseSymmetricTensor(rank = 3, dim=3)
-
-    A[0,0,0] =1
-    A[0,0,1] =-12
-    A[0,1,2] = 0.5
-    A[2,2,2] = 1.0
-    A[0,2,2] = -30
-    A[1,2,2] = 0.1
-
-    W = np.random.rand(3,3)
-    with TimeThis('permcls_indep_iter_repindex'):
-        li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
-    W1 = np.random.rand(3,3)
-    assert np.isclose(symalg.contract_all_indices_with_matrix(A, W).todense(), utils.symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
-    assert np.isclose(symalg.contract_all_indices_with_matrix(A, W1).todense(), utils.symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
+# %% tags=["active-ipynb"]
+# from mackelab_toolbox.utils import TimeThis
+# from symtensor import symalg
+#
+# A = DenseSymmetricTensor(rank = 3, dim=3)
+#
+# A[0,0,0] =1
+# A[0,0,1] =-12
+# A[0,1,2] = 0.5
+# A[2,2,2] = 1.0
+# A[0,2,2] = -30
+# A[1,2,2] = 0.1
+#
+# W = np.random.rand(3,3)
+# with TimeThis('permcls_indep_iter_repindex'):
+#     li = [[W[0,a] for a in σidx] for σidx in itertools.permutations((0,1,2))]
+# W1 = np.random.rand(3,3)
+# assert np.isclose(symalg.contract_all_indices_with_matrix(A, W).todense(), utils.symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W))).all()
+# assert np.isclose(symalg.contract_all_indices_with_matrix(A, W1).todense(), utils.symmetrize(np.einsum('abc, ai,bj,ck -> ijk', A.todense(), W1,W1,W1))).all()
 
 # %% [markdown]
 # ## Memory footprint
 # Memory required to store tensors, relative to an equivalent dense NumPy array of the same shape.
 
 # %% tags=["active-ipynb"]
-# if exenv in {"notebook", "jbook"}:
-#     import holoviews as hv
-#     hv.extension('bokeh')
-#     
-#     fig = utils.compare_memory(
-#         DenseSymmetricTensor,
-#         ranks_dims = itertools.product(
-#             [1, 2, 3, 4, 5, 6, 7, 8],
-#             [1, 2, 3, 4, 6, 8, 10, 20, 40, 80, 100]),
-#         dtype=np.float64
-#     )
-#     fig.select(rank=[1,3,5,7]).opts(hv.opts.Curve(muted=True))  # Make even rank curves more prominent
-#     display(fig)
+# import holoviews as hv
+# hv.extension('bokeh')
+#
+# fig = utils.compare_memory(
+#     DenseSymmetricTensor,
+#     ranks_dims = itertools.product(
+#         [1, 2, 3, 4, 5, 6, 7, 8],
+#         [1, 2, 3, 4, 6, 8, 10, 20, 40, 80, 100]),  # FIXME: The second list seems to be used for rank
+#     dtype=np.float64
+# )
+# fig.select(rank=[1,3,5,7]).opts(hv.opts.Curve(muted=True))  # Make even rank curves more prominent
+# display(fig)
+
+# %%

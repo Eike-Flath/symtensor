@@ -183,7 +183,7 @@ class TorchSymmetricTensor(SymmetricTensor):
             # NB: During initialization, `self._dtype` is None.
             array = torch.tensor(array, dtype=self._dtype)
         elif self._dtype is not None and array.dtype != self._dtype:
-            array = array.type_as(self._dtype)
+            array = array.type(self._dtype)
 
         # Validate dtype
         # At present, PyTorch only has numeric & bool dtypes, so there isn't really anything to check
@@ -194,6 +194,7 @@ class TorchSymmetricTensor(SymmetricTensor):
     def _set_dtype(self, dtype: Optional[DType]):
         if dtype is None:
             dtype = torch.float64
+        # TODO: if isinstance(dtype, torch.Tensor)
         elif not isinstance(dtype, torch.dtype):
             dtype = _numpy_to_torch_dtypes[np.dtype(dtype)]
         self._dtype = dtype
@@ -306,7 +307,7 @@ for symalgop, torchop in [(symalg.add, torch.add),
 
 # %%
 @TorchSymmetricTensor.implements(np.result_type)
-def result_type(*arrays_and_dtypes) -> DType:
+def result_type(*arrays_and_dtypes) -> torch.dtype:
     """
     Extends support for numpy.result_type. SymmetricTensors are treated as
     arrays of the same dtype.
@@ -317,12 +318,25 @@ def result_type(*arrays_and_dtypes) -> DType:
     # If the array function dispatch got here, one of the args is a TorchSymmetricTensor
     # torch.result_type only works with pairs, so we use functools.reduce to apply to all args
     # torch.result_type ALSO only works with values (not dtypes), so for dtypes we create throwaway vars
-    return reduce(torch.result_type,
-                  (x.type(1) if isinstance(x, np.dtype)
-                   else torch.scalar_tensor(1, dtype=x) if isinstance(x, torch.dtype)
-                   else x
-                   for x in (y.dtype if isinstance(y, SymmetricTensor) else y
-                             for y in arrays_and_dtypes)))
+    #   We also do this inside a function, since the return value of result_type is itself a dtype
+    def result_type(a, b):
+        x = a
+        a = (torch.scalar_tensor(1, dtype=x) if isinstance(x, torch.dtype)
+             else x.type(1) if isinstance(x, np.dtype)
+             else x)
+        x = b
+        b = (torch.scalar_tensor(1, dtype=x) if isinstance(x, torch.dtype)
+             else x.type(1) if isinstance(x, np.dtype)
+             else x)
+        return torch.result_type(a, b)
+    res = reduce(result_type,
+                 (x for x in (y.dtype if isinstance(y, SymmetricTensor) else y
+                              for y in arrays_and_dtypes)))
+    # If `arrays_and_dtypes` has only one element, `reduce` simply returns it.
+    # I.e. it will likely be a torch Tensor rather than dtype
+    if isinstance(res, torch.Tensor):
+        res = res.dtype
+    return res
 
 # %% [markdown]
 # #### `isclose()`
@@ -347,14 +361,15 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
 # **[TODO]** For consistency with NumPy, `allclose` should apply broadcasting, and raise `ValueError` if the shapes aren’t broadcastable.
 
 # %%
-@TorchSymmetricTensor.implements(np.array_equal)
-def array_equal(a, b) -> bool:
-    """
-    Return True if `a` and `b` are both `SymmetricTensors` and all their
-    elements are equal. Emulates `numpy.array_equal` for torch tensors.
-    """
-    # NB: torch.array_equal is not defined, but np.array_equal seems to work.
-    return base._array_compare(np.array_equal, a , b)
+
+# NB: torch.array_equal is not defined, but the default implementation with np.array_equal seems to work.
+# @TorchSymmetricTensor.implements(np.array_equal)
+# def array_equal(a, b) -> bool:
+#     """
+#     Return True if `a` and `b` are both `SymmetricTensors` and all their
+#     elements are equal. Emulates `numpy.array_equal` for torch tensors.
+#     """
+#     return base._array_compare(np.array_equal, a , b)
 
 @TorchSymmetricTensor.implements(np.allclose)
 def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
@@ -365,6 +380,22 @@ def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
     return base._array_compare(
         partial(torch.allclose, rtol=rtol, atol=atol, equal_nan=equal_nan),
          a, b)
+
+# %% [markdown]
+# #### `utils.astype`, `utils.empty`
+#
+# Adaptations of array creation and coercion functions to support Torch types.
+
+# %%
+@utils.astype.register
+def _(a: torch.Tensor, dtype):
+    return a.type(dtype)
+
+# %%
+@utils.empty_array_like.register(torch.Tensor)
+@utils.empty_array_like.register(TorchSymmetricTensor)
+def _(like, shape: Tuple[int,...], dtype=None):
+    return torch.empty(shape, dtype=dtype)
 
 # %% [markdown]
 # #### `utils.symmetrize`
@@ -437,20 +468,6 @@ from symtensor.dense_symtensor import DenseSymmetricTensor
 class DenseTorchSymmetricTensor(TorchSymmetricTensor, DenseSymmetricTensor):
     _data                : Union[TorchTensor]
 
-    def _init_data(self, data, symmetrize: bool):
-        # NB: Can assume that `data` is a Torch tensor and self._dtype a Torch dtype
-        if data.dtype != self._dtype:  # Only cast if necessary
-            data = torch.tensor(data.numpy(), dtype=self._dtype)
-        if data.shape == (self.dim,)*self.rank:
-            self._data = data
-        else:
-            self._data = torch.empty((self.dim,)*self.rank, dtype=self._dtype)
-            self._data[:] = data
-        if symmetrize:
-            self._data = utils.symmetrize(self._data)
-        elif not utils.is_symmetric(self._data):
-            raise ValueError("Data are not symmetric.")
-
     # NB: Torch doesn’t define `flat`, but instead `flatten` returns a view when possible
     @property
     def flat(self):
@@ -458,3 +475,108 @@ class DenseTorchSymmetricTensor(TorchSymmetricTensor, DenseSymmetricTensor):
 
     class Data(DenseSymmetricTensor.Data):
         _symtensor_type: ClassVar[Optional[type]]="DenseTorchSymmetricTensor"  # NB: Data.decode expects a string, in order resolve the forward ref
+
+# %% [markdown]
+# ## `DenseTorchSymmetricTensor`
+
+# %%
+from symtensor import permcls_symtensor as σst
+
+class PermClsTorchSymmetricTensor(TorchSymmetricTensor, σst.PermClsSymmetricTensor):
+    _data       : Dict[Tuple[int,...], Union[TorchTensor]]
+
+    class Data(σst.PermClsSymmetricTensor.Data):
+        _symtensor_type: ClassVar[Optional[type]]="PermClsTorchSymmetricTensor"  # NB: Data.decode expects a string, in order resolve the forward ref
+
+    def _validate_data(self, data, symmetrize: bool=False):
+        # Override the case where we initialize with a dense array / tensor or a dict
+        # For scalar case, the implementation in PermClsSymmetricTensor still works
+
+        if isinstance(data, np.ndarray):
+            data = torch.tensor(data)
+
+        if isinstance(data, torch.Tensor):
+            rank = np.ndim(data) if self.rank is None else self.rank
+            dim = (self.dim if self.dim is not None
+                   else max(*data.shape, 1) if data.shape  # NB: For 1D arrays, torch.shape returns a non-iterable scalar
+                   else 1)  # Last line for scalars, which have an empty shape tuple
+            datashape = (dim,)*rank
+            datadtype = data.dtype
+            try:
+                broadcasted_data = torch.broadcast_to(data, datashape)
+            except RuntimeError as e:
+                # Translate into a ValueError for consistency with NumPy.
+                # Because of course PyTorch chose to raise a different exception…
+                raise ValueError(str(e)) from e
+            if rank == 0:
+                data = {(): data}
+            else:
+                if symmetrize:
+                    broadcasted_data = utils.symmetrize(broadcasted_data)
+                elif not utils.is_symmetric(broadcasted_data):
+                    raise ValueError("Data array is not symmetric.")
+                data = {σcls: self._validate_dataarray(
+                            broadcasted_data[tuple(np.array(idcs)
+                                for idcs in zip(*σst.σindex_iter(σcls, dim)))])
+                        for σcls in utils._perm_classes(rank)
+                        if len(σcls) <= dim}  # This condition guards against situations where rank > dim
+
+        elif isinstance(data, dict):
+            if len(data) == 0:
+                raise NotImplementedError("Initializating with empty data is not implemented")
+            # NB: If data is passed as a valid dict, it is by construction symmetric
+            # If `data` comes from serialized JSON; revert strings to tuples
+            # TODO: Better do the str -> tuple deserialization in Data.decode
+            for key in list(data):
+                if isinstance(key, str):
+                    newkey = literal_eval(key)  # NB: That this is Tuple[int] is verified below
+                    if newkey in data:
+                        raise ValueError(f"`data` contains the key '{key}' "
+                                         "twice: possibly in both its original "
+                                         "and serialized (str) form.")
+                    data[newkey] = data[key]
+                    del data[key]
+
+            # Infer the data dtype
+            data = {k: self._validate_dataarray(v) for k, v in data.items()}
+            datadtype = result_type(*data.values())  # ONLY CHANGE WRT PARENT CLASS: If we could define `result_type` for torch tensor (not just TorchSymmetricTensors), the parent class def would work
+
+            rank = self.rank
+            if rank is None:
+                raise NotImplementedError("To instantiate with a mapping, we need to implement code which infers rank and dim from the mapping itself.")
+            dim = self.dim
+            if dim is None:
+                dims = set(sum(counts) for counts in data.keys())
+                if len(dims) > 1:
+                    raise ValueError("Data dict inconsistent: keys don't all have the same dimension.")
+                dim = next(iter(dims))
+
+            datashape = (dim,)*rank
+
+        else:
+            # Currently only the scalar case remains in this branch
+            data, datadtype, datashape = super()._validate_data(data, symmetrize)
+        if isinstance(datadtype, torch.Tensor):
+            import pdb; pdb.set_trace()
+        return data, datadtype, datashape
+
+    def todense(self) -> TorchTensor:
+        A = torch.empty(self.shape, dtype=self.dtype)
+        for idx, value in zip(self.indep_iter_index(), self.indep_iter()):
+            A[idx] = value
+        return A
+
+# %% [markdown]
+# #### `array_equal()`
+#
+# Overriden to allow for scalars in the underlying arrays: underlying arrays not having the same shape is fine
+
+# %%
+@PermClsTorchSymmetricTensor.implements(np.array_equal)
+def array_equal(a, b) -> bool:
+    """
+    Return True if `a` and `b` are both `SymmetricTensors` and all their
+    elements are equal. Emulates `numpy.array_equal` for torch tensors.
+    """
+    return np.shape(a) == np.shape(b) and base._array_compare(
+        lambda x, y: torch.all(x == y), a , b)

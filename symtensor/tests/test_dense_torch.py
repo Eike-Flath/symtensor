@@ -87,8 +87,8 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 #     run_test(test_creation_with_dtype)
 
 # %% [markdown]
-# Initializing with data. Note that even when we specify NumPy dtypes when initializing, an equivalent Torch dtype is used.  
-# This test is overridden from the base API suite to change the assertions to test against Torch dtypes.
+# Initializing with data.
+# This test is format, and often backend, specific, and so needs to be overriden
 
     # %% tags=[]
     def test_initialization_with_data(self, SymTensor):
@@ -108,39 +108,17 @@ class TestDenseTorchSymtensorAPI(SymTensorAPI):
 
         # Init with list
         A = SymTensor(rank=2, dim=2, data=data.tolist(), dtype=float)
-        assert A.dtype == torch.float64
+        assert A.dtype == torch.float64  # When `data` doesn’t provide dtype, default is float64
         assert np.array_equal(A._data, data)
-
-        # TypeError if dim or rank are missing
-        with pytest.raises(TypeError):
-            SymTensor(rank=2)
-        with pytest.raises(TypeError):
-            SymTensor(dim=2)
-        
-        # Rank & dim are required when initializing with a scalar
-        with pytest.raises(TypeError):
-            SymTensor(data=5.)
-        SymTensor(rank=0, dim=3, data=5.)
-        # But we can infer a rank if we initialize with a 0-rank array
-        # (inferred rank is 0, which can be overwritten by passing the `rank` argument)
-        with pytest.raises(TypeError):
-            SymTensor(data=np.array(5.))  # Dim is still required, because all data have the same () shape when rank = 0
-        SymTensor(dim=3, data=np.array(5.))
-
-        # ValueError if dim/rank are not compatible with data
-        with pytest.raises(ValueError):
-            SymTensor(rank=2, dim=3, data=data)
-        with pytest.raises(ValueError):
-            SymTensor(rank=1, dim=3, data=data)
-
-        # Broadcasting to higher rank is theoretically allowed,
-        # but one must make sure that the resulting array is symmetric
-        with pytest.raises(ValueError):
-            A = SymTensor(rank=3, dim=2, data=data)
-        A = SymTensor(rank=3, dim=2, data=data, symmetrize=True)
 
 # %% tags=["remove-input", "active-ipynb"]
 #     run_test(test_initialization_with_data)
+
+# %% [markdown]
+# Illegal initializations
+
+# %% tags=["remove-input", "active-ipynb"]
+#     show_test(API.test_illegal_initializations)
 
 # %% [markdown]
 # ## Iteration

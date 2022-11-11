@@ -319,7 +319,7 @@ def twoway_partitions_pairwise_iterator(lst: Sequence[Any], size1: int, size2: i
         return zip(lsts_1, lsts_2), len(indices_1)
     else: 
         return zip(lsts_1, lsts_2)
-    
+
 # %% [markdown]
 # #### Timings
 
@@ -401,6 +401,9 @@ def nway_partitions_iterator(lst: Sequence[Any], sizes: Tuple[int], num_partitio
 # ## Array utilities
 
 # %% [markdown]
+# **NOTE** Some of the functions below use functools’ `singledispatch` because we want to be able to write an overloaded variant for PyTorch tensors, which don’t support the `__array_function__` protocol. (PyTorch likes to be mildly incompatible with NumPy – just enough to break the default implementation below.)
+
+# %% [markdown]
 # ### `get_np_dtype` - Deprecate ?
 #
 # A more permissive form of `np.dtype(<type>)`. Mostly a workaround for Torch’s dtypes, which annoyingly don’t support conversion to NumPy dtypes.
@@ -422,9 +425,66 @@ def nway_partitions_iterator(lst: Sequence[Any], sizes: Tuple[int], num_partitio
 #             return np.dtype(dtype)
 
 # %% [markdown]
-# ### `symmetrize`
+# ### `astype`
 #
-# **NOTE** We use functools’ `singledispatch` here because we want to be able to write an overloaded variant for PyTorch tensors, which don’t support the `__array_function__` protocol. (PyTorch likes to be mildly incompatible with NumPy – just enough to break the default implementation below.)
+# Wrapper for `ndarray.astype` method, which dispatches to `.type()` on Torch `Tensors`.
+
+# %%
+@functools.singledispatch
+def astype(a, dtype):
+    """
+    Wraps an `astype` method call with the following parameters
+    - `order=K`
+    - `casting='unsafe'`
+    - `subok=True`
+    - `copy=False`
+    
+    .. Note:: The `copy` argument differs from the default of NumPy’s `.astype()`.
+    This is both to better emulate `Tensor.type(…)`, but also because more often
+    than not we want to avoid a copy when we use this.
+    """
+    return a.astype(dtype, order='K', casting='unsafe', subok=True, copy=False)
+
+
+# %% [markdown]
+# ### `empty_array_like`
+#
+# A wrapper for `np.empty`, which extends the `like` keyword argument of `np.empty` to support two additional `like` types:
+# - instances which don’t implement the `__array_function__` protocol (in particular Torch `Tensors`) as long as a specialized implementation is provided for them;
+# - instances of `SymmetricTensor`.
+#
+# Support for specialized types is added when a related module is imported: 
+# `symtensor.torch_symtensor` adds support for torch `Tensor` and `TorchSymmetricTensor` instances, `symtensor.base` for `SymmetricTensor` instances, etc.
+
+# %%
+@functools.singledispatch
+def empty_array_like(like, shape: Tuple[int,...], dtype=None):
+    """
+    Return an empty array-like, of the same type as the `like` argument.
+    
+    :param:like: Either:
+      - An instance of an array type, like `numpy.ndarray` or `torch.Tensor`.
+      - An instance of a `SymmetricTensor` subclass. In this case, the `empty`
+        method of the SymmetricTensor’s backend is used.
+      Note that this argument *can not* be pased by keyword.
+    :param:shape:
+    :param:dtype:
+        See `numpy.empty`.
+    
+    .. Important:: To support torch Tensors, make sure to first import
+       `symtensor.torch_symtensor`. Similarly for subclasses of `SymmetricTensor`
+    
+    .. Note:: This function is not equivalent to `numpy.empty` when when `like`
+       is a `SymmetricTensor` subclass. `numpy.empty` in that case would return
+       an empty `SymmetricTensor` of the same subclass, whereas 
+       ``empty_array(like=PermClsSymmetricTensor(…), …)`` would return an empty
+       *NumPy* array. 
+    """
+    return np.empty(shape, dtype=dtype, like=like)
+
+
+# %% [markdown]
+# ### `symmetrize`
 
 # %%
 @functools.singledispatch
