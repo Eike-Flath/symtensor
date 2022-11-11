@@ -37,6 +37,30 @@
 #
 # We call $\lambda^m$ the weights and $t^m$ the vectors (strictly speaking, these could be again symmetric tensors) and $k,l$ in the example above the multiplicities.
 
+# %% [markdown]
+# ## Capabilities
+#
+# Most functionalities only work up until the number of different factors in the outer product, `num_indep_factors = 4`.
+# Then we have: 
+#
+#  - Adding and removing of factors
+#  - adding and removing of weights
+#  - retrieval of symmetrized entries 
+#  - splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-1,1,...)
+#  - addition of tensors
+#  - multiplication of tensors 
+#  - outer product
+#  - tensordot, but axes >1 does not work for `num_indep_factors > 1`.
+#  
+#  ## Known bugs: 
+#  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (?)
+#  
+#  ## Open To-dos
+#  - [ ] tensordot, with axes >1 working for `num_indep_factors > 1`.
+#  - [ ] splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-d,d,...)
+#  - [ ] all of the above for `num_indep_factors > 4`.
+#  - [ ] tensor.weights typically has many zeros, exploit this?
+
 # %% tags=["remove-input"]
 from __future__ import annotations
 import statGLOW.typing
@@ -62,8 +86,8 @@ from scityping.torch import TorchTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
 # import symtensor.utils as utils 
 
-# %% tags=["active-py", "remove-cell"]
-# Script only imports
+ # %% tags=["active-py", "remove-cell"]
+ #  #   #Script only imports
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
@@ -309,7 +333,16 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         
         #TODO: make splitting off of factor with multiplicity >1
                     #possible 
-    
+    def sort_multiplicities(self): 
+        """
+        Sort multiplicities in descending order. 
+        
+        """
+        if not self.multiplicities == tuple(sorted(self.multiplicities, reverse = True)):
+            multiplicity_permutation = tuple(np.argsort(self.multiplicities)[::-1])
+            self.weights = torch.permute(self.weights, multiplicity_permutation)
+            self.multiplicities = tuple(sorted(self.multiplicities, reverse = True))
+        
     def match_multiplicities(self, mult): 
         """
         Create equivalent tensor with
@@ -324,20 +357,27 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         assert sum(mult)== self.rank, "new multiplicity does not match rank"
         assert len(mult) >= self.num_indep_factors, "can only increase number of independent factors"
         
-        max_num_splits = 10 #safeguard against too many splits
-        num_splits = 0
-        while self.multiplicities != mult and num_splits < max_num_splits:
-            for i,m in enumerate(mult):
-                if self.multiplicities[i] > m: 
-                    self.split_factors(i)
-                    num_splits += 1
-                    break
-                elif self.multiplicities[i] == m:
-                    continue
-                elif self.multiplicities[i] < m:
-                    raise ValueError("Can only reduce individual multiplicity factors, not increase them")
-        if num_splits == max_num_splits: 
-            raise ValueError("maximum number of splits reached. Reduce number of independent factors")
+        if not self.multiplicities == mult:
+            if self.num_indep_factors == len(mult): 
+                #need only rearange mulitplicities
+                assert tuple(sorted(mult, reverse = True)) == tuple(sorted(self.multiplicities, reverse = True))
+                self.sort_multiplicities()
+
+            else:
+                max_num_splits = 10 #safeguard against too many splits
+                num_splits = 0
+                while self.multiplicities != mult and num_splits < max_num_splits:
+                    for i,m in enumerate(mult):
+                        if self.multiplicities[i] > m: 
+                            self.split_factors(i)
+                            num_splits += 1
+                            break
+                        elif self.multiplicities[i] == m:
+                            continue
+                        elif self.multiplicities[i] < m:
+                            raise ValueError("Can only reduce individual multiplicity factors, not increase them")
+                if num_splits == max_num_splits: 
+                    raise ValueError("maximum number of splits reached. Reduce number of independent factors")
     
     def find_common_multiplicities(self,other):
         """
@@ -360,16 +400,17 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         if not self.rank == other.rank: 
             raise ValueError("Tensor ranks must be equal.")
             
+        self.sort_multiplicities()
+        other.sort_multiplicities()
         if self.multiplicities == other.multiplicities:
             return self.multiplicities
         elif other.num_indep_factors < self.num_indep_factors:
             return other.find_common_multiplicities(self)
-        else:
+        elif other.num_indep_factors > self.num_indep_factors:
             max_num_splits = 10 #safeguard against too many splits
             num_splits = 0
             new_mult = other.multiplicities
             while len(new_mult) < self.num_indep_factors and num_splits < max_num_splits:
-                print(new_mult)
                 for i,m in enumerate(self.multiplicities):
                     if m == new_mult[i]: 
                         continue
@@ -383,7 +424,10 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                 raise ValueError("maximum number of splits reached. Reduce number of independent factors")
             else: 
                 return new_mult
-                        
+        else: 
+            #need only rearange mulitplicities
+            assert other.num_indep_factors == self.num_indep_factors
+            return tuple(sorted(self.multiplicities, reverse = True))
                 
                 
     
@@ -566,6 +610,41 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
                   for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
         return out
+
+
+# %%
+def two_comp_test_tensor(d,r):
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r,)
+    return A
+    
+def two_factor_test_tensor(d,r, q = 1):
+    assert q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-q,q)
+    return A
+    
+def three_factor_test_tensor(d,r, q = 1):
+    assert r>=3
+    assert 2*q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-2*q,q,q)
+    return A
+
+def four_factor_test_tensor(d,r, q = 1):
+    assert r>=3
+    assert 3*q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2,2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-3*q,q,q,q)
+    return A
 
 
 # %% [markdown]
@@ -986,14 +1065,21 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                     out.multiplicities = (self.multiplicities[0]-1,)
                     out.factors = self.factors 
                     #equivalent to \nu in desc. above
-                    out.weights = torch.einsum('m,n,mj,nj->m', \
-                                               self.weights, other.weights, 
+                    # it appears that einsum does not find the best way to 
+                    # do this contraction, as we get memoryerrors, so 
+                    # we do it in two steps
+                    factor_dot = torch.einsum('mj,nj->mn', \
                                                self.factors, other.factors)
+                    out.weights = torch.einsum('m,n,mn->m', \
+                                               self.weights, other.weights, 
+                                               factor_dot)
                     return out
             elif self.multiplicities[0]==1:
                 assert other.multiplicities[0] <=1
-                out = torch.einsum('m,n,mj,nj->',self.weights, other.weights, 
-                                  self.factors, other.factors)
+                factor_dot = torch.einsum('mj,nj->mn', \
+                                               self.factors, other.factors)
+                out = torch.einsum('m,n,mn->',self.weights, other.weights, 
+                                  factor_dot)
                 return out
         #partially decomp tensor and fully decomp tensor
         elif self.num_indep_factors ==1 and other.num_indep_factors > 1:
@@ -1027,9 +1113,11 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                     indices_result = indices_before_i+'i'+ indices_after_i +'z'
                     indices_in = indices_before_i + 'i'  + indices_after_i 
                     out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    factor_dot = torch.einsum('iy,zy->iz', \
+                                               self.factors, other.factors)
                     out.weights[(slice(self.num_factors),)*(self.num_indep_factors)+(slice(self.num_factors,None),)] =  \
-                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
-                                            self.weights, self.factors, other.factors, other.weights)
+                                torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, factor_dot, other.weights)
                 #contraction consumes factor
                 if self.multiplicities[i]==1 and other.multiplicities[0] >1:
                     out.multiplicities = self.multiplicities[:i] \
@@ -1039,9 +1127,11 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                     indices_result = indices_before_i+ indices_after_i +'z'
                     indices_in = indices_before_i + 'i'  + indices_after_i 
                     out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    factor_dot = torch.einsum('iy,zy->iz', \
+                                               self.factors, other.factors)
                     out.weights[(slice(self.num_factors),)*(self.num_indep_factors-1)+(slice(self.num_factors,None),)] =  \
-                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
-                                            self.weights, self.factors, other.factors, other.weights)
+                                torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, factor_dot, other.weights)
                 #contraction consumes factor of other
                 if self.multiplicities[i]>1 and other.multiplicities[0] ==1:
                     out.multiplicities = self.multiplicities[:i] \
@@ -1052,9 +1142,11 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                     indices_result = indices_before_i+'i'+ indices_after_i 
                     indices_in = indices_before_i + 'i'  + indices_after_i 
                     out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    factor_dot = torch.einsum('iy,zy->iz', \
+                                               self.factors, other.factors)
                     out.weights[(slice(self.num_factors),)*(self.num_indep_factors)] =  \
-                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
-                                            self.weights, self.factors, other.factors, other.weights)
+                                torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, factor_dot, other.weights)
                 #contraction consumes factor and factor of other
                 if self.multiplicities[i]==1 and other.multiplicities[0] ==1:
                     out.multiplicities = self.multiplicities[:i] \
@@ -1064,9 +1156,14 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                     indices_result = indices_before_i+ indices_after_i 
                     indices_in = indices_before_i + 'i'  + indices_after_i 
                     out.weights = torch.zeros((out.num_factors,)*out.num_indep_factors)
+                    # it appears that einsum does not find the best way to 
+                    # do this contraction, as we get memoryerrors, so 
+                    # we do it in two steps
+                    factor_dot = torch.einsum('iy,zy->iz', \
+                                               self.factors, other.factors)
                     out.weights[(slice(self.num_factors),)*(self.num_indep_factors-1)] =  \
-                                torch.einsum(indices_in +', '+ 'iy' + ', '+ 'zy' + ', '+'z' '-> ' + indices_result, 
-                                            self.weights, self.factors, other.factors, other.weights)
+                                torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
+                                            self.weights, factor_dot, other.weights)
                  #weight with relative number of occurences in symmetrization sum
                 out_tensors += [np.multiply(out,m*1.0/self.rank)]
             

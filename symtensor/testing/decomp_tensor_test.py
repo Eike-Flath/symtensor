@@ -15,6 +15,38 @@ from .decomp_symmtensor import DecompSymmetricTensor
 from . import utils
 
 
+# %%
+import pytest
+from collections import Counter
+from statGLOW.utils import does_not_warn
+from symtensor.utils import symmetrize
+import itertools
+            
+def two_comp_test_tensor(d,r):
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r,)
+    return A
+    
+def two_factor_test_tensor(d,r, q = 1):
+    assert q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-q,q)
+    return A
+    
+def three_factor_test_tensor(d,r, q = 1):
+    assert r>=3
+    assert 2*q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-2*q,q,q)
+    return A
+
+
 # %% [markdown]
 # # Tests
 
@@ -55,36 +87,7 @@ if __name__ == "__main__":
     assert (B.multiplicities  == multiplicities)
 
 
-    # %%
-    import pytest
-    from collections import Counter
-    from statGLOW.utils import does_not_warn
-    from symtensor.utils import symmetrize
-    import itertools
-            
-    def two_comp_test_tensor(d,r):
-        A = DecompSymmetricTensor(rank=r, dim=d)
-        A.weights = torch.randn(size =(2,))
-        A.factors =  torch.randn(size =(2,d))+1
-        A.multiplicities = (r,)
-        return A
-    
-    def two_factor_test_tensor(d,r, q = 1):
-        assert q<r
-        A = DecompSymmetricTensor(rank=r, dim=d)
-        A.weights = torch.randn(size =(2,2))
-        A.factors =  torch.randn(size =(2,d))+1
-        A.multiplicities = (r-q,q)
-        return A
-    
-    def three_factor_test_tensor(d,r, q = 1):
-        assert r>=3
-        assert 2*q<r
-        A = DecompSymmetricTensor(rank=r, dim=d)
-        A.weights = torch.randn(size =(2,2,2))
-        A.factors =  torch.randn(size =(2,d))+1
-        A.multiplicities = (r-2*q,q,q)
-        return A
+# %%
 
 
 # %% [markdown]
@@ -461,7 +464,7 @@ if __name__ == "__main__":
     B.match_multiplicities((1,1,1,2))
     assert torch.allclose(A.todense(), B.todense(), atol = 1e-4)
     assert B.multiplicities == (1,1,1,2)
-    assert A.find_common_multiplicities(B) == (1,1,1,2)
+    assert A.find_common_multiplicities(B) == (2,1,1,1)
 
 # %% [markdown]
 # ## Addition
@@ -524,7 +527,6 @@ if __name__ == "__main__":
     B_1 = two_factor_test_tensor(d,r, q = 1)
     C_1 = A_1+B_1
     assert torch.allclose(C_1.todense(),A_1.todense()+B_1.todense(), atol = 1e-5)
-    
     d = 5
     r = 4
     
@@ -653,10 +655,7 @@ if __name__ == "__main__":
             test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
             dense_tensor_14 = utils.symmetrize(np.tensordot(
                 tensor_1.todense(), tensor_2.todense(), axes=1 ))
-            print(test_tensor_14.todense(), \'' dense_tensor_14)
-            assert np.allclose(test_tensor_14.todense(), dense_tensor_14)
-
-
+            assert np.allclose(test_tensor_14.todense(), dense_tensor_14, atol =1e-5)
 
 
 # %% [markdown]
