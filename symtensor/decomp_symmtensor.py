@@ -648,7 +648,7 @@ def four_factor_test_tensor(d,r, q = 1):
 
 
 # %% [markdown]
-# # Tensor addition
+# ## Tensor addition
 #
 # ### Fully decomposed tensors
 # We want to do 
@@ -918,7 +918,7 @@ def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor:
 # \end{cases}
 # $$
 #
-# ### Tripartite and fully decomposed Tensor
+# #### Tripartite and fully decomposed Tensor
 #
 # The generalization of the scheme above is straightforward. 
 

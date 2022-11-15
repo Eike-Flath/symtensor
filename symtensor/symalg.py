@@ -358,7 +358,7 @@ def nonsymmetric_tensordot(a, b, axes=2):
 # At present, this definition requires that the class be hard-coded.
 
 # %% [markdown]
-# #### Test
+# #### Test
 #
 # Test that the use of `make_array_like` avoids coercion.
 # (Obviously this test only makes sense if `einsum_path` is implemented)

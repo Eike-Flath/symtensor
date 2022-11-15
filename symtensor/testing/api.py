@@ -277,7 +277,7 @@ class SymTensorAPI:
 
 
 # %% [markdown]
-# Element-wise assignement: Assigning one value modifies all associated symmetric components.
+# Element-wise assignment: Assigning one value modifies all associated symmetric components.
 
     # %%
     def test_elementwise_assignment(self, SymTensor):

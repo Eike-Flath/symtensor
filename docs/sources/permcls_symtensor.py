@@ -1,0 +1,1 @@
+../../symtensor/permcls_symtensor.py

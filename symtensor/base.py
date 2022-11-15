@@ -248,7 +248,8 @@ logger = logging.getLogger(__name__)
 # :::
 
 # %% [markdown]
-# :::{margin} `implements_ufunc` interface
+# :::{margin}
+# `implements_ufunc` interface
 # :::
 
 # %% tags=["hide-input"]
@@ -318,7 +319,8 @@ class HandledUfuncsInterface:
         return ufunc_registry_interface
 
 # %% [markdown]
-# :::{margin} abstract class `SymmetricTensor`
+# :::{margin}
+# abstract class `SymmetricTensor`
 # :::
 
 # %%
@@ -1524,7 +1526,8 @@ def isclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> Union[np.ndarray, Sy
         a, b)
 
 # %% [markdown]
-# :::{margin} `_elementwise_compare`
+# :::{margin}
+# `_elementwise_compare`
 # :::
 
 # %%
@@ -1625,7 +1628,8 @@ def allclose(a, b, rtol=1e-5, atol=1e-8, equal_nan=False) -> bool:
 
 
 # %% [markdown]
-# :::{margin} `_array_compare`
+# :::{margin}
+# `_array_compare`
 # :::
 
 # %%
@@ -1691,7 +1695,8 @@ def _array_compare(comp, a, b) -> bool:
 # [^1]: Exception: if the function includes arguments with default values, the corresponding arguments of the dispatcher must use `None` as their default value. See also the docstring of numpy.core.overrides.array_function_dispatch; some examples can be found in numpy.core.numeric.py
 
 # %% [markdown]
-# ::: {margin} `array_function_dispatch`
+# ::: {margin}
+# `array_function_dispatch`
 # :::
 
 # %%

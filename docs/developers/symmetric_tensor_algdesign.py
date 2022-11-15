@@ -13,33 +13,42 @@
 # %% [markdown]
 # # Algorithmic design of tensor contractions
 #
+# ::::{margin}
+# :::{note}
+# The `%%cython --annotate` line adds the `.cython` class to this pages’s `<body>`, which is why everything is in a monospace font.  
+# If someone knows how to fix this, that would be nice…
+# :::
+# ::::
+#
 # Tensor contractions easily become the computational bottleneck in these theoretical studies. The faster we can make them, the bigger the systems we can consider.
 #
 # This notebook tests and compares different implementation for these operations. It serves to support various design choices.
 #
-# :::{Caution} This file is badly out of date. Many of the profiled functions have now been integrated and further updated. :::
+# :::{Warning}
+# This file is badly out of date. Many of the profiled functions have now been integrated and further updated.
+# :::
+
+# %% [markdown]
+# :::{admonition} TODO
+# :class: important
+# Split into sub-files: at present, if any code cell is changed, every test is re-run – some of them are quite long.
+# :::
 
 # %% tags=["remove-cell"]
 from __future__ import annotations
 
-# %% tags=["remove-cell"]
-if __name__ == "__main__":
-    exenv = "script"
-else:
-    exenv = "module"
+# %%
+from symtensor import utils
 
-    # %% tags=["remove-cell"]
-    exenv = "notebook"
-
-# %% tags=["remove-cell"]
+# %% tags=[]
 from typing import Union, List
 import pytest
 
 import itertools
 import math  # For operations on plain Python objects, math can be 10x faster than NumPy
 from numpy.random import RandomState  # The legacy RandomState is preferred for testing (see https://numpy.org/neps/nep-0019-rng-policy.html#supporting-unit-tests)
-from statGLOW.smttask_ml.rng import get_seedsequence
-from symtensor import _get_perm_class
+from symtensor.utils import _get_permclass, get_permclass_size
+from symtensor import symalg
 
 import time
 import timeit
@@ -61,11 +70,8 @@ logger.setLevel(logging.DEBUG)
 # %% tags=["remove-cell"]
 import pandas as pd
 import holoviews as hv
-if exenv == "notebook":
-    hv.extension('bokeh')
-elif exenv == "script":
-    hv.extension('matplotlib')
-
+hv.extension('bokeh')
+#hv.extension('matplotlib')
 
 # %% [markdown]
 # ## Profiled operations
@@ -78,15 +84,22 @@ elif exenv == "script":
 # Contractions between two *symmetric* tensors are generally not too onerous, and since we symmetrize after applying one layer, one of two tensors in an operation is always symmetric. Thus the bottleneck operations are those contracting $A$ with $W$, and they come in 2 types: 
 #
 # - **Rank-preserving contractions:**
+#   
 #   $$B_{j_1,\dotsc,j_r} = \sum_{i_1,\dotsc,i_r} A_{i_1,\dotsc,i_r} W_{i_1,j_1} \dotsb W_{i_r,j_r} \hphantom{b_{i_k+1} \dotsb b_{i_r}} $$
+#
 # - **Rank-lowering contractions:**
+#
 #   $$B_{j_1,\dotsc,j_k} = \sum_{i_1,\dotsc,i_r} A_{i_1,\dotsc,i_r} W_{i_1,j_1} \dotsb W_{i_k,j_k} b_{i_k+1} \dotsb b_{i_r}$$
 #   
-#  Note that an operation of the second kind could be written as two operations: 
-#  -  **Lower the rank:**
-#    $$C_{j_1,\dotsc,j_k} = \sum_{i_{k+1},\dotsc,i_r} A_{i_1,\dotsc,i_r} b_{i_k+1} \dotsb b_{i_r}$$
-#  -  **Rank-preserving contraction:**
-#    $$B_{j_1,\dotsc,j_k} = \sum_{i_1,\dotsc,i_k} C_{i_1,\dotsc,i_k} W_{i_1,j_1} \dotsb W_{i_k,j_k} $$
+#   Note that this second operation could be written as two operations: 
+#
+#   - **Lower the rank:**
+#
+#      $$C_{j_1,\dotsc,j_k} = \sum_{i_{k+1},\dotsc,i_r} A_{i_1,\dotsc,i_r} b_{i_k+1} \dotsb b_{i_r}$$
+#
+#   - **Rank-preserving contraction:**
+#
+#     $$B_{j_1,\dotsc,j_k} = \sum_{i_1,\dotsc,i_k} C_{i_1,\dotsc,i_k} W_{i_1,j_1} \dotsb W_{i_k,j_k} $$
 #  
 # Here again, the second operation is the expesive one, since only the second operation involves non-symmetric tensors (vectors are trivially symmetric). 
 
@@ -112,6 +125,7 @@ elif exenv == "script":
 #
 # Let $\alpha_{\text{list}}, \beta_{\text{list}}$ be lists containing all the unique indices of the symmetric tensors $A,B$. 
 # For example, for $A$ a tensor of rank $r=4$ with dimension 10: 
+#
 # $$ \alpha_{\text{list}} = \begin{pmatrix}
 # 0,0,0,0 \\
 # 0,0,0,1 \\
@@ -124,7 +138,8 @@ elif exenv == "script":
 # $$
 # B_{\beta} = \sum_{\alpha} A_{\alpha} \sum_{(i_1, ... i_r) \in \, σ(\alpha)} W_{i_1,\beta_1} ... W_{i_r, \beta_r} 
 # $$
-# where $ σ(\alpha)$ are all unique permutations of $\alpha$. (For example, if $\alpha$ is $(1,1,2,3)$, then $(i_1,i_2,i_3,i_4)$ and $(i_2,i_1,i_3,i_4)$ are not unique permutations.)
+#
+# where $σ(\alpha)$ are all unique permutations of $\alpha$. (For example, if $\alpha$ is $(1,1,2,3)$, then $(i_1,i_2,i_3,i_4)$ and $(i_2,i_1,i_3,i_4)$ are not unique permutations.)
 #
 #       
 
@@ -140,8 +155,10 @@ elif exenv == "script":
 # %% [markdown]
 # ### `index_perm_prod_sum`
 #
-# This function computes 
+# This function computes
+#
 # $$\sum_{(i_1, ... i_r) \in \, σ(\alpha)} W_{i_1,\beta_1} ... W_{i_r, \beta_r} $$
+#
 # for $\beta = (j_1, ... j_r) =$ `idx_fixed` and $\alpha =$ `idx_permute`.
 
 # %%
@@ -153,7 +170,7 @@ def index_perm_prod_sum_no_cython(W, idx_fixed,idx_permute):
     
     (for example, if idx_permute is (1,1,2), then, i_1,i_2,i_3 and i_2,i_1,i_3 are not unique permutations.)
     """
-    idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
+    idx_repeats = _get_permclass(idx_permute) # number of repeats of indices
     permutations_of_identical_idx = math.prod([math.factorial(r) for r in idx_repeats])
     matr = np.array([[W[i,j] for i,j in zip(permuted_idx,idx_fixed)]
                                       for permuted_idx in itertools.permutations(idx_permute)])
@@ -170,7 +187,7 @@ def index_perm_prod_sum_no_cython(W, idx_fixed,idx_permute):
 # np.import_array()
 # import itertools
 # import math
-# from symtensor import _get_perm_class
+# from symtensor.utils import _get_permclass
 # def index_perm_prod_sum_old(np.ndarray W, tuple idx_fixed, tuple idx_permute):
 #     """
 #     For index_fixed = (j_1, ... j_r)
@@ -179,7 +196,7 @@ def index_perm_prod_sum_no_cython(W, idx_fixed,idx_permute):
 #     
 #     (for example, if idx_permute is (1,1,2), then, i_1,i_2,i_3 and i_2,i_1,i_3 are not unique permutations.)
 #     """
-#     cdef tuple idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
+#     cdef tuple idx_repeats = _get_permclass(idx_permute) # number of repeats of indices
 #     cdef int permutations_of_identical_idx = math.prod([math.factorial(r) for r in idx_repeats])
 #     cdef np.ndarray matr = np.array([[W[i,j] for i,j in zip(permuted_idx,idx_fixed)]
 #                                       for permuted_idx in itertools.permutations(idx_permute)])
@@ -194,7 +211,7 @@ def index_perm_prod_sum_no_cython(W, idx_fixed,idx_permute):
 #     
 #     (for example, if idx_permute is (1,1,2), then, i_1,i_2,i_3 and i_2,i_1,i_3 are not unique permutations.)
 #     """
-#     cdef tuple idx_repeats = _get_perm_class(idx_permute) # number of repeats of indices
+#     cdef tuple idx_repeats = _get_permclass(idx_permute) # number of repeats of indices
 #     cdef int permutations_of_identical_idx = math.prod(math.factorial(r) for r in idx_repeats)
 #     cdef float result = sum([math.prod(W[i,j] for i,j in zip(permuted_idx,idx_fixed))
 #                                       for permuted_idx in itertools.permutations(idx_permute)]) /permutations_of_identical_idx
@@ -246,25 +263,34 @@ for i in range(10):
 #
 # Trying to isolate even further which part of the computation is slow: Iterating over the tensors is not expensive. Retrieving the values is also not expensive, since we iterate over them in a sequential manner, as we do in our final contraction method. At, least, the time needed for the retrieval of values is far below  the time needed for the computation of the contraction. 
 
-# %%
-from symtensor import SymmetricTensor
+# %% [markdown]
+# ::::{margin}
+# :::{admonition} TODO
+# :class: important
+# Report with DataFrame as with [](#micro-tests).
+# :::
+# ::::
+
+# %% tags=[]
+from symtensor import PermClsSymmetricTensor as SymmetricTensor
+
 def iterate_over_tensor_retrieve_value(x):
     a=0
-    for idx_permute in x.index_class_iter(): 
-        for idx_permute1 in x.index_class_iter(): 
+    for idx_permute in x.indep_iter_repindex(): 
+        for idx_permute1 in x.indep_iter_repindex(): 
             y = x[idx_permute1]
             a +=1
     return a
 
 def iterate_over_tensor(x):
     a=0
-    for idx_permute in x.index_class_iter(): 
-        for idx_permute1 in x.index_class_iter(): 
+    for idx_permute in x.indep_iter_repindex(): 
+        for idx_permute1 in x.indep_iter_repindex(): 
             a +=1
     return a
 
 
-for dim in [1,2,4,6,8,10]: 
+for dim in [1,2,4,6,8]:#,10]: 
     x = SymmetricTensor(rank = 4, dim= dim)
     x['iiii'] = 1
     #print(iterate_over_tensor(x))
@@ -293,7 +319,7 @@ def contract_all_indices_with_matrix_old( x, W):
 
     for perm_cls in x.perm_classes:
         C[perm_cls] = [ np.sum([index_perm_prod_sum_old(W, idx_fixed, idx_permute)*x[idx_permute]
-                      for idx_permute in x.index_class_iter()]) for idx_fixed in x.index_class_iter(class_label= perm_cls) ]
+                      for idx_permute in x.indep_iter_repindex()]) for idx_fixed in x.indep_iter_repindex(class_label= perm_cls) ]
     return C
 
 def contract_all_indices_with_matrix( x, W):
@@ -309,7 +335,8 @@ def contract_all_indices_with_matrix( x, W):
 
     for perm_cls in x.perm_classes:
         C[perm_cls] = [ sum(index_perm_prod_sum(W, idx_fixed, idx_permute)*x[idx_permute]
-                      for idx_permute in x.index_class_iter()) for idx_fixed in x.index_class_iter(class_label= perm_cls) ]
+                      for idx_permute in x.indep_iter_repindex())
+                       for idx_fixed in x.permcls_indep_iter_repindex(perm_cls) ]
     return C
 
 
@@ -336,11 +363,11 @@ def contract_all_indices_with_matrix_schatz_3(x, W):
     for i in range(0, x.dim): 
         y = SymmetricTensor(rank =1, dim = x.dim)
         y['i'] = W[i,:]
-        t_1 = x.tensordot(y, axes = 1) 
+        t_1 = symalg.tensordot(x, y, axes = 1) 
         for j in range(0, i+1): 
             y = SymmetricTensor(rank =1, dim = x.dim)
             y['i'] = W[j,:]
-            t_2 = t_1.tensordot(y, axes = 1) 
+            t_2 = symalg.tensordot(t_1, y, axes = 1) 
             for k in range(0, j+1):
                 y = W[k,:]
                 new_tensor[i,j,k] = np.dot(t_2['i'], y)
@@ -353,15 +380,15 @@ def contract_all_indices_with_matrix_schatz_4(x, W):
     for i in range(0, x.dim): 
         y = SymmetricTensor(rank =1, dim = x.dim)
         y['i'] = W[:,i]
-        t_1 = x.tensordot(y, axes = 1) 
+        t_1 = symalg.tensordot(x, y, axes = 1) 
         for j in range(0, i+1): 
             y = SymmetricTensor(rank =1, dim = x.dim)
             y['i'] = W[:,j]
-            t_2 = t_1.tensordot(y, axes = 1) 
+            t_2 = symalg.tensordot(t_1, y, axes = 1) 
             for k in range(0, j+1): 
                 y = SymmetricTensor(rank =1, dim = x.dim)
                 y['i'] = W[:,k]
-                t_3 = t_2.tensordot(y, axes = 1) 
+                t_3 = symalg.tensordot(t_2, y, axes = 1) 
                 for l in range(0, k+1):
                     y = W[:,l]
                     new_tensor[i,j,k,l] = np.dot(t_3['i'], y)
@@ -372,41 +399,42 @@ def contract_all_indices_with_matrix_schatz_4(x, W):
 # %% [markdown]
 # Now we compare how far we got with the improvements. We use a rank $4$ tensor because we would like to go at least that high in rank. 
 
+# %% [markdown]
+# :::{margin}
+# **Removed** (15.11.2022): `x.contract_all_indices_with_matrix`
+# Probably should be replacet with `contract_tensor_list`.
+# :::
+#
+# ::::{margin}
+# :::{admonition} TODO
+# :class: important
+# Report with DataFrame as with [](#micro-tests).
+# :::
+# ::::
+
 # %%
-from symtensor import SymmetricTensor
-for dim in [2,4,6,8,9]: 
+
+for dim in [2,4,6,8,9,10]:#,20,30]: 
     x = SymmetricTensor(rank =4, dim= dim)
     W = np.random.rand(dim,dim)
-    x['iiii'] = np.random.rand( x._class_sizes[(4,)])
-    x['ijkl'] = np.random.rand( x._class_sizes[(1,1,1,1)])
-    x['ijjj'] = np.random.rand( x._class_sizes[(3,1)])
-    x['iijj'] = np.random.rand( x._class_sizes[(2,2)])
-    x['iijk'] = np.random.rand(x._class_sizes[(2,1,1)])
+    x['iiii'] = np.random.rand( get_permclass_size((4,), dim) )
+    x['ijkl'] = np.random.rand( get_permclass_size((1,1,1,1), dim) )
+    x['ijjj'] = np.random.rand( get_permclass_size((3,1), dim) )
+    x['iijj'] = np.random.rand( get_permclass_size((2,2), dim) )
+    x['iijk'] = np.random.rand( get_permclass_size((2,1,1), dim) )
     print('dim = ',dim)
     
     #check that implementations still work
     assert np.isclose(contract_all_indices_with_matrix(x,W).todense(), np.einsum('ijkl, ia, jb, kc, ld -> abcd',x.todense(), W,W,W,W)).all()
     assert np.isclose(contract_all_indices_with_matrix_schatz(x,W).todense(), np.einsum('ijkl, ia, jb, kc, ld -> abcd',x.todense(), W,W,W,W)).all()
-    print('without cython or any other improvements:')
-    # %timeit x.contract_all_indices_with_matrix(W) #without cython or any other improvements
-    print('fastest version of our method (using cython etc):')
-    # %timeit contract_all_indices_with_matrix(x,W) #fastest contraction atm 
+    #print('without cython or any other improvements:')
+    # #%timeit x.contract_all_indices_with_matrix(W) #without cython or any other improvements
+    if dim > 6:
+        print("Skipping our method for dim > 6 (too slow).")
+    else:
+        print('fastest version of our method (using cython etc):')
+        # %timeit contract_all_indices_with_matrix(x,W) #fastest contraction atm 
     print('schatz method, dirty implementation')
-    # %timeit contract_all_indices_with_matrix_schatz(x,W)
-    
-
-
-# %%
-from symtensor import SymmetricTensor
-for dim in [10,20,30]: 
-    x = SymmetricTensor(rank = 4, dim= dim)
-    W = np.random.rand(dim,dim)
-    x['iiii'] = np.random.rand( x._class_sizes[(4,)])
-    x['ijkl'] = np.random.rand( x._class_sizes[(1,1,1,1)])
-    x['ijjj'] = np.random.rand( x._class_sizes[(3,1)])
-    x['iijj'] = np.random.rand( x._class_sizes[(2,2)])
-    x['iijk'] = np.random.rand(x._class_sizes[(2,1,1)])
-    print('dim = ',dim)
     # %timeit contract_all_indices_with_matrix_schatz(x,W)
 
 
@@ -469,15 +497,15 @@ INDEX_RNGKEY = 1
 
 INDEX_DTYPE = np.uint32
 
-# %%
+# %% tags=[]
 # Exhaustive values
-n_calls = 10000
-n_repeats = 16
+n_calls = 1000
+n_repeats = 4
 n_seeds = 4      # For each (N, dist) combination, repeat this many times with different array values
 
-# %% tags=["skip-execution", "remove-cell"]
+# %% tags=["remove-cell", "skip-execution"]
 # Quick run
-n_calls = 4000
+n_calls = 1000
 n_repeats = 3
 n_seeds = 1
 
@@ -488,7 +516,8 @@ n_repeats = 1
 n_seeds = 1
 
 # %%
-Nlst = [100, 10000, 1000000, 100000000]
+#Nlst = [100, 10000, 1000000, 100000000]
+Nlst = [100, 400, 1000, 4000, 10000]
 Mfrac_lst = [0.1, 1, 3, 10]   #  Values for M/N
 dists = [('normal', {'scale': 3}),
          ('normal', {'scale': 10}),
@@ -524,7 +553,7 @@ def extract_numbers(s) -> List[int]:
 
 
 # %% tags=["hide-input"]
-def get_idx(idx_desc: str, A: Union[np.ndarray, int], Mfrac: float=1, rng_key: Union[Tuple[int], int]=()):
+def get_idx(idx_desc: str, A: Union[np.ndarray, int], Mfrac: float=1, seed=None):
     """
     Convert a compact, human-readable index description to an
     object which can be used to slice the array `A`.
@@ -550,7 +579,7 @@ def get_idx(idx_desc: str, A: Union[np.ndarray, int], Mfrac: float=1, rng_key: U
          
      A: Array to be indexed, or size of the array.
      Mfrac: The ratio M/N
-     rng_key: An RNG key (int tuple) as expected by `smttask_ml.rng.get_seedsequence`.
+     seed: An RNG seed to pass to .
         For convenience, a plain integer is also accepted.
         In both cases, the key is prefixed with `INDEX_RNGKEY`.
     """
@@ -563,9 +592,7 @@ def get_idx(idx_desc: str, A: Union[np.ndarray, int], Mfrac: float=1, rng_key: U
     else:
         raise ValueError(f"`A` should be an integer or a 1D array. Received: {A} (type: {type(A)})")
     M = max(round(Mfrac*N), 1)
-    if isinstance(rng_key, int):
-        rng_key = (rng_key,)
-    rs = RandomState(get_seedsequence((INDEX_RNGKEY, *rng_key)).generate_state(1))
+    rs = RandomState(seed)
     
     if idx_desc in {"full", "sequential full"}:
         idx_desc = "sequential no replace"
@@ -602,38 +629,37 @@ def get_idx(idx_desc: str, A: Union[np.ndarray, int], Mfrac: float=1, rng_key: U
 
 # %% tags=["remove-cell", "skip-execution"]
 # Unit testing for get_idx()
-if exenv == "notebook":
-    A = np.array([8, 2, 0, 1])
-    B = np.arange(50)
+A = np.array([8, 2, 0, 1])
+B = np.arange(50)
 
-    assert get_idx(":", A) == get_idx("None", A) == slice(None)
-    assert list(get_idx("full", A)) == [0, 1, 2, 3]
+assert get_idx(":", A) == get_idx("None", A) == slice(None)
+assert list(get_idx("full", A)) == [0, 1, 2, 3]
 
-    for idx_desc in ["random replace", "random no replace", "sequential replace", "sequential no replace"]:
-        I1 = get_idx(idx_desc, B, 0.7, rng_key=1)
-        I2 = get_idx(idx_desc, B, 0.7, rng_key=1)
-        I3 = get_idx(idx_desc, B, 0.7, rng_key=2)
-        assert list(I1) == list(I2) != list(I3)
-    
-    I = get_idx("random replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
-    I = get_idx("random replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4)
-    I = get_idx("random replace", A, 1);   assert len(I) == 4; assert np.all(I < 4)
-    I = get_idx("random replace", A, 2);   assert len(I) == 8; assert np.all(I < 4)
-    I = get_idx("random no replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
-    I = get_idx("random no replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4)
-    I = get_idx("random no replace", A, 1)  ; sorted(I) == [0, 1, 2, 3]
-    with pytest.raises(ValueError):
-        assert len(get_idx("random no replace", A, 2)) == 8
+for idx_desc in ["random replace", "random no replace", "sequential replace", "sequential no replace"]:
+    I1 = get_idx(idx_desc, B, 0.7, seed=1)
+    I2 = get_idx(idx_desc, B, 0.7, seed=1)
+    I3 = get_idx(idx_desc, B, 0.7, seed=2)
+    assert list(I1) == list(I2) != list(I3)
 
-    I = get_idx("sequential replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
-    I = get_idx("sequential replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4); assert list(I) == sorted(I)
-    I = get_idx("sequential replace", A, 1);   assert len(I) == 4; assert np.all(I < 4); assert list(I) == sorted(I)
-    I = get_idx("sequential replace", A, 2);   assert len(I) == 8; assert np.all(I < 4); assert list(I) == sorted(I)
-    I = get_idx("sequential no replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4); assert list(I) == sorted(I)
-    I = get_idx("sequential no replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4); assert list(I) == sorted(I)
-    I = get_idx("sequential no replace", A, 1)  ; list(I) == [0, 1, 2, 3]
-    with pytest.raises(ValueError):
-        assert len(get_idx("sequential no replace", A, 2)) == 8
+I = get_idx("random replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
+I = get_idx("random replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4)
+I = get_idx("random replace", A, 1);   assert len(I) == 4; assert np.all(I < 4)
+I = get_idx("random replace", A, 2);   assert len(I) == 8; assert np.all(I < 4)
+I = get_idx("random no replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
+I = get_idx("random no replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4)
+I = get_idx("random no replace", A, 1)  ; sorted(I) == [0, 1, 2, 3]
+with pytest.raises(ValueError):
+    assert len(get_idx("random no replace", A, 2)) == 8
+
+I = get_idx("sequential replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4)
+I = get_idx("sequential replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4); assert list(I) == sorted(I)
+I = get_idx("sequential replace", A, 1);   assert len(I) == 4; assert np.all(I < 4); assert list(I) == sorted(I)
+I = get_idx("sequential replace", A, 2);   assert len(I) == 8; assert np.all(I < 4); assert list(I) == sorted(I)
+I = get_idx("sequential no replace", A, 0.1); assert len(I) == 1; assert np.all(I < 4); assert list(I) == sorted(I)
+I = get_idx("sequential no replace", A, 0.5); assert len(I) == 2; assert np.all(I < 4); assert list(I) == sorted(I)
+I = get_idx("sequential no replace", A, 1)  ; list(I) == [0, 1, 2, 3]
+with pytest.raises(ValueError):
+    assert len(get_idx("sequential no replace", A, 2)) == 8
 
 
 # %% tags=["remove-cell"]
@@ -647,7 +673,7 @@ def dist_str(d):
 
 
 # %% tags=["hide-input"]
-def get_test_array(N_idx, dist_idx, rng_key):
+def get_test_array(N_idx, dist_idx, seed):
     """
     :param:i: Use this to generate different arrays with the same N and dist.
     :param:N_idx: Index (into `Nlst`) of the desired N.
@@ -655,7 +681,7 @@ def get_test_array(N_idx, dist_idx, rng_key):
     """
     N = Nlst[N_idx]
     dist_info = dists[dist_idx]
-    rs = RandomState(get_seedsequence((ARRAY_RNGKEY, N_idx, dist_idx, rng_key)).generate_state(1))
+    rs = RandomState(seed)
     dist_method = getattr(rs, dist_info[0])
     return dist_method(**dist_info[1], size=N)
 
@@ -698,14 +724,13 @@ def timeit_repeat(stmt, number=None, repeat=None, **variables):
 # %% tags=["remove-cell"]
 timings = {}
 
-# %% tags=["hide-input"]
+# %% tags=["hide-input", "remove-output", "skip-execution"]
 stmt = "np.dot(A1[i1], A2[i2])"
 indexing = ["None", "full", "random replace"]
 
-if exenv == "notebook":
-    status_label = widgets.Label("Indexing: {idx_desc}; M/N: {Mfrac}; Array size: {size}; calls per repeat: {number}"
-                                 .format(idx_desc=None, Mfrac=None, size=None, number=None))
-    display(status_label)
+status_label = widgets.Label("Indexing: {idx_desc}; M/N: {Mfrac}; Array size: {size}; calls per repeat: {number}"
+                             .format(idx_desc=None, Mfrac=None, size=None, number=None))
+display(status_label)
 
 for idx_desc in tqdm(indexing, desc="indexing"):
     _Mfrac_lst = [1] if idx_desc in {"None", "full"} else Mfrac_lst
@@ -723,15 +748,14 @@ for idx_desc in tqdm(indexing, desc="indexing"):
                     ndigits = -math.ceil(math.log10(number)) + 2   # Keep up to 2 significant digits
                     number = round(number, ndigits)
 
-                    if exenv == "notebook":
-                        status_label.value = f"Indexing: {idx_desc}; M/N: {Mfrac}; Array size: {size}; calls per repeat: {number}"
+                    status_label.value = f"Indexing: {idx_desc}; M/N: {Mfrac}; Array size: {size}; calls per repeat: {number}"
 
                     res = timeit_repeat(
                         stmt, number=number,
-                        A1 = get_test_array(Ni, d, rng_key=2*i),
-                        A2 = get_test_array(Ni, d, rng_key=2*i+1),
-                        i1 = get_idx(idx_desc, N, Mfrac=Mfrac, rng_key=2*i),
-                        i2 = get_idx(idx_desc, N, Mfrac=Mfrac, rng_key=2*i+1),
+                        A1 = get_test_array(Ni, d, seed=2*i),
+                        A2 = get_test_array(Ni, d, seed=2*i+1),
+                        i1 = get_idx(idx_desc, N, Mfrac=Mfrac, seed=2*i),
+                        i2 = get_idx(idx_desc, N, Mfrac=Mfrac, seed=2*i+1),
                     )
 
                     timings[(stmt, idx_desc, Mfrac, N, dist_str(d), i)] = min(res)

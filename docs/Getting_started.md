@@ -1,11 +1,15 @@
 ---
 jupytext:
   formats: md:myst
-  notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
+  notebook_metadata_filter: -jupytext.text_representation.jupytext_version
   text_representation:
     extension: .md
     format_name: myst
     format_version: 0.13
+kernelspec:
+  display_name: Python (symtensor)
+  language: python
+  name: symtensor
 ---
 
 # Getting started
@@ -14,6 +18,18 @@ jupytext:
 :tags: [remove-input]
 
 from __future__ import annotations
+```
+
+```{code-cell} ipython3
+:tags: [hide-input]
+
+import math
+import textwrap
+import numpy as np
+import pytest
+
+import holoviews as hv
+hv.extension("bokeh")
 ```
 
 ## Rationale
@@ -140,15 +156,7 @@ Symmetric tensors with [different memory layouts](./symmetric_formats.md) are pr
 :::
 
 ```{code-cell} ipython3
-from symtensor import SymmetricTensor, DenseSymmetricTensor
-```
-
-```{code-cell} ipython3
-import pytest
-from symtensor import SymmetricTensor, DenseSymmetricTensor
-
-import holoviews as hv
-hv.extension("bokeh")
+from symtensor import SymmetricTensor, DenseSymmetricTensor, utils
 ```
 
 The base class `SymmetricTensor` is an [*abstract base class*](https://docs.python.org/3/library/abc.html): it prescribes a certain set of methods, but since it does not specify a memory layout, some methods are left unimplemented. It therefore cannot be instantiated directly:
@@ -168,7 +176,7 @@ Subclasses define a memory layout, and provide implementations for the methods w
 
 ```{code-cell} ipython3
 A = DenseSymmetricTensor(rank=3, dim=3)
-if exenv in {"notebook", "jbook"}: display(A)
+display(A)
 ```
 
 Values can be assigned to an entire permutation class at a time.
@@ -177,7 +185,7 @@ Note the use of `get_permclass_size` to avoid having to compute how many indepen
 ```{code-cell} ipython3
 A['iiii'] = 1
 A['iijj'] = np.arange(utils.get_permclass_size('iijj', A.dim))
-if exenv in {"notebook", "jbook"}: display(A)
+display(A)
 ```
 
 The `indep_iter` and `indep_iter_index` methods can be used to obtain a list of values where *each independent component appears exactly once*.
