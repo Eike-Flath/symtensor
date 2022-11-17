@@ -3,11 +3,15 @@
 # jupyter:
 #   jupytext:
 #     formats: py:percent
-#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version,-kernelspec
+#     notebook_metadata_filter: -jupytext.text_representation.jupytext_version
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
+#   kernelspec:
+#     display_name: Python (symtensor)
+#     language: python
+#     name: symtensor
 # ---
 
 # %% [markdown]
@@ -724,7 +728,7 @@ def timeit_repeat(stmt, number=None, repeat=None, **variables):
 # %% tags=["remove-cell"]
 timings = {}
 
-# %% tags=["hide-input", "remove-output", "skip-execution"]
+# %% tags=["hide-input", "remove-output"]
 stmt = "np.dot(A1[i1], A2[i2])"
 indexing = ["None", "full", "random replace"]
 
