@@ -63,14 +63,12 @@
 
 # %% tags=["remove-input"]
 from __future__ import annotations
-import statGLOW.typing
 
 # %% tags=["remove-input"]
 from functools import reduce
 import numpy as np   # To avoid MKL bugs, always import NumPy before Torch
 import torch
 from pydantic import BaseModel
-from collections_extended import bijection
 from scipy.special import binom
 import itertools
 
@@ -258,10 +256,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     @property
     def num_arrangements(self): 
-        """ number of ways to arrange factors in outer product: 
-        E.G if multiplicities = (2,2), have
+        """Number of ways to arrange factors in outer product
+        
+        E.G if multiplicities = (2,2), one has
         AABB ABAB BBAA ABBA BAAB BABA = 6 = binom(4,2)
-        possibilities. """
+        possibilities.
+        """
         if self.num_indep_factors==1: 
             return 1
         else: 
@@ -278,13 +278,19 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def num_indep_factors(self): 
         """
         Quantifies how many different vectors appear in the outer products.
-        E.g. 
-        T = v\otimes w
-        T' = v\otimes w \otimes w
-        both have num_indep_factors = 2
-        But
-        Q = = v\otimes w \otimes u
-        has num_indep_factors = 3. 
+        For example, both cases below have `num_indep_factors` = 2:
+        
+        .. math::
+        
+           T  &= v\otimes w           \\
+           T' &= v\otimes w \otimes w
+        
+        On the other hand,
+        
+        .. math::
+           Q = v\otimes w \otimes u
+           
+        has `num_indep_factors` = 3. 
         """
         if self.multiplicities is None: 
             raise ValueError("multiplicities unspecified")
@@ -294,9 +300,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     def split_factors(self, pos): 
         """
-        Create equivalent tensor with different
-        multiplicities, where the `pos`th multiplicity 
-        is split of. 
+        Create equivalent tensor with different multiplicities,
+        where the `pos`th multiplicity is split off. 
         
         Inputs: 
         =======
@@ -313,7 +318,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         letters = 'abdcefghijklmnopqrstuvwxy' # keep z seperate
         if self.num_indep_factors > len(letters): 
             #absurdly many factors
-            raise NotImplemenetedError
+            raise NotImplementedError(f"Tensors with more than {len(letters)} are not supported.")
         
         #update weights to incorporate multiplicity split
         indices_before_pos = letters[:pos+1]
@@ -335,8 +340,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                             + self.multiplicities[pos+1:]
         self.multiplicities = new_multiplicities
         
-        #TODO: make splitting off of factor with multiplicity >1
-                    #possible 
+        #TODO: make splitting off of factor with multiplicity >1 possible 
+
     def sort_multiplicities(self): 
         """
         Sort multiplicities in descending order. 
@@ -347,15 +352,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             self.weights = torch.permute(self.weights, multiplicity_permutation)
             self.multiplicities = tuple(sorted(self.multiplicities, reverse = True))
         
-    def match_multiplicities(self, mult): 
+    def match_multiplicities(self, mult: Tuple[int]): 
         """
-        Create equivalent tensor with
-        multiplicities equal to `mult`.
+        Create equivalent tensor with multiplicities equal to `mult`.
         
-        Inputs: 
-        =======
-        m: tuple[int]
-            new multiplicity
+        Parameters 
+        ----------
+        m: new multiplicity
         
         """
         assert sum(mult)== self.rank, "new multiplicity does not match rank"
@@ -383,16 +386,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                 if num_splits == max_num_splits: 
                     raise ValueError("maximum number of splits reached. Reduce number of independent factors")
     
-    def find_common_multiplicities(self,other):
+    def find_common_multiplicities(self,other: DecompSymmetricTensor) -> Tuple[int]:
         """
-        Find min. number of multiplicities 
-        such that multiplicities are equal.
+        Find min. number of multiplicities such that multiplicities are equal.
         
         Inputs: 
         =======
-        other: DecompSymmetricTensor
-            Tensor to which multiplicities
-            should be matched.
+        other: Tensor to which multiplicities should be matched.
         
         Returns: 
         ========
@@ -512,8 +512,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """
         {{base_docstring}}
 
-        .. Note:: Cannot set individual entries of a 
-        DecompSymmetricTensor.
+        .. Note:: Cannot set individual entries of a DecompSymmetricTensor.
         """
         raise NotImplementedError("It is not possible to set individual"+ \
                                  "entries of DecompSymmtetricTensor.")
@@ -592,10 +591,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             raise NotImplementedError
             
             
-    def contract_all_indices_with_matrix(self, W): 
+    def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
         """
-        Contract all indices of the tensor with a matrix W:
-        out_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+        Contract all indices of the tensor with a matrix `W`.
+        Returns `out`, where
+        
+        .. math::
+           \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
         """
         out = self.copy()
         out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
@@ -604,8 +606,10 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     def multinomial(self, x): 
         """
-        Contract all indices of the tensor with a vector x:
-        out = \sum self_abdc x_a x_b x_c x_d 
+        Contract all indices of the tensor with a vector x, returning:
+        
+        .. math::
+           \sum self_abdc x_a x_b x_c x_d 
         """
         if not len(x) == self.dim: 
             raiseValueError("dimension must match Tensor dimension")
@@ -615,6 +619,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                   for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
         return out
 
+
+# %% [markdown]
+# $\mathtt{out}$
 
 # %%
 def two_comp_test_tensor(d,r):

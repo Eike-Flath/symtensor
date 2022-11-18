@@ -18,7 +18,6 @@ from . import utils
 # %%
 import pytest
 from collections import Counter
-from statGLOW.utils import does_not_warn
 from symtensor.utils import symmetrize
 import itertools
             
@@ -739,5 +738,7 @@ if __name__ == "__main__":
     A = three_factor_test_tensor(d,r,q=2)
     B = A.copy()
     B.split_factors(1)
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), rtol=1e-4)
     assert B.multiplicities == (1,1,1,2)
+
+# %%
