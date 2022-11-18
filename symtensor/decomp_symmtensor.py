@@ -80,14 +80,18 @@ from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
 
+# %% [markdown] tags=[]
+# Module only imports
+
 # %% tags=["active-ipynb", "remove-input"]
-# # Module only imports
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
 # import symtensor.utils as utils 
 
- # %% tags=["active-py", "remove-cell"]
- #  #   #Script only imports
+# %% [markdown] tags=["remove-cell"]
+# Script only imports
+
+# %% tags=["active-py", "remove-cell"]
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
