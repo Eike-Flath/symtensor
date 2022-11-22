@@ -592,7 +592,7 @@ if __name__ == "__main__":
     
     C_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C_dense = utils.symmetrize(C_dense)
-    assert np.allclose(C.todense().numpy(), sym_C_dense)
+    assert np.allclose(C.todense().numpy(), sym_C_dense, atol =1e-5)
 
     # rank 3 tripartite & rank 2 fully decomposed
     A = three_factor_test_tensor(2,3, q = 1)
@@ -600,7 +600,7 @@ if __name__ == "__main__":
     C = np.outer(A,B)
     C_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C_dense = utils.symmetrize(C_dense)
-    assert np.allclose(C.todense().numpy(), sym_C_dense)
+    assert np.allclose(C.todense().numpy(), sym_C_dense, atol =1e-5)
 
     # rank 2 bipartite & rank 2 bipartite
     A1 = two_factor_test_tensor(2,2, q = 1)
@@ -608,7 +608,7 @@ if __name__ == "__main__":
     C1 = np.outer(A,B)
     C1_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C1_dense = utils.symmetrize(C1_dense)
-    assert np.allclose(C1.todense().numpy(), sym_C1_dense)
+    assert np.allclose(C1.todense().numpy(), sym_C1_dense, atol =1e-5)
 
 
 # %% [markdown]

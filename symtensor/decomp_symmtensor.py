@@ -53,7 +53,7 @@
 #  - tensordot, but axes >1 does not work for `num_indep_factors > 1`.
 #  
 #  ## Known bugs: 
-#  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (?)
+#  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (fixed now?)
 #  
 #  ## Open To-dos
 #  - [ ] tensordot, with axes >1 working for `num_indep_factors > 1`.
