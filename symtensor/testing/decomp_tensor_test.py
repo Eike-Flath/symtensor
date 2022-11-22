@@ -8,17 +8,20 @@ from scipy.special import binom
 # # Module only imports
 # from symtensor.decomp_symmtensor import DecompSymmetricTensor
 # import symtensor.utils as utils 
+# import symtensor.symalg as symalg
 
 # %% tags=["active-py", "remove-cell"]
 Script only imports
 from .decomp_symmtensor import DecompSymmetricTensor
 from . import utils
+from . import symalg
 
 
 # %%
 import pytest
 from collections import Counter
 from symtensor.utils import symmetrize
+
 import itertools
             
 def two_comp_test_tensor(d,r):
@@ -666,22 +669,22 @@ if __name__ == "__main__":
     r = 2 
     A = two_comp_test_tensor(d,r)
     W = torch.randn(size=(3,3))
-    B = A.contract_all_indices_with_matrix(W).todense().numpy()
+    B = symalg.contract_all_indices_with_matrix(A,W).todense().numpy()
     assert np.isclose(B, symmetrize(torch.einsum('ab, ai,bj -> ij', A.todense(), W,W).numpy())).all()
     r = 3
     A = two_comp_test_tensor(d,r)
     W = torch.randn(size=(3,3))
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
+    assert np.isclose(symalg.contract_all_indices_with_matrix(A,W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
     
     r = 2
     A = two_factor_test_tensor(d,r, q = 1)
     W = torch.randn(size=(3,3))
-    B = A.contract_all_indices_with_matrix(W).todense().numpy()
+    B = symalg.contract_all_indices_with_matrix(A,W).todense().numpy()
     assert np.isclose(B, symmetrize(torch.einsum('ab, ai,bj -> ij', A.todense(), W,W).numpy())).all()
     r = 3
     A = two_factor_test_tensor(d,r, q = 1)
     W = torch.randn(size=(3,3))
-    assert np.isclose(A.contract_all_indices_with_matrix(W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
+    assert np.isclose(symalg.contract_all_indices_with_matrix(A,W).todense(), symmetrize(torch.einsum('abc, ai,bj,ck -> ijk', A.todense(), W,W,W).numpy())).all()
 
 
 # %% [markdown]
@@ -694,7 +697,7 @@ if __name__ == "__main__":
     for i in range(d): 
         x = torch.zeros(d)
         x[i] =1
-        assert torch.isclose(A[(i,)*r], A.multinomial(x))
+        assert torch.isclose(A[(i,)*r],symalg.contract_all_indices_with_matrix(A,x))
     
     d = 3
     r =3

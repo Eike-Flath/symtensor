@@ -83,6 +83,7 @@ from scityping.torch import TorchTensor
 # %% tags=["active-ipynb", "remove-input"]
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
+# import symtensor.symalg as symalg
 # import symtensor.utils as utils 
 
 # %% [markdown] tags=["remove-cell"]
@@ -92,6 +93,7 @@ from scityping.torch import TorchTensor
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
+from . import symalg
 
 
 # %%
@@ -302,8 +304,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         Create equivalent tensor with different multiplicities,
         where the `pos`th multiplicity is split off. 
         
-        Inputs: 
-        =======
+        Parameters
+        ----------
         pos: int
             which multiplicity to split
         
@@ -389,12 +391,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """
         Find min. number of multiplicities such that multiplicities are equal.
         
-        Inputs: 
-        =======
+        Parameters: 
+        ----------
         other: Tensor to which multiplicities should be matched.
         
         Returns: 
-        ========
+        ----------
         m: tuple[int]
             new multiplicity
         
@@ -590,34 +592,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             raise NotImplementedError
             
             
-    def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
-        """
-        Contract all indices of the tensor with a matrix `W`.
-        Returns `out`, where
-        
-        .. math::
-           \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
-        """
-        out = self.copy()
-        out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
-        return out
-
     
-    def multinomial(self, x): 
-        """
-        Contract all indices of the tensor with a vector x, returning:
-        
-        .. math::
-           \sum self_abdc x_a x_b x_c x_d 
-        """
-        if not len(x) == self.dim: 
-            raiseValueError("dimension must match Tensor dimension")
-        num_indep_factors = self.num_indep_factors
-        factors_times_x = torch.einsum('ij,j-> i', self.factors, x)
-        out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
-                  for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
-        return out
-
 
 # %% [markdown]
 # $\mathtt{out}$
@@ -655,6 +630,39 @@ def four_factor_test_tensor(d,r, q = 1):
     A.factors =  torch.randn(size =(2,d))+1
     A.multiplicities = (r-3*q,q,q,q)
     return A
+
+
+# %%
+@DecompSymmetricTensor.implements(symalg.contract_all_indices_with_matrix)
+def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
+    """
+    Contract all indices of the tensor with a matrix `W`.
+    Returns `out`, where
+    
+    .. math::
+       \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+    """
+    out = self.copy()
+    out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
+    return out
+
+@DecompSymmetricTensor.implements(symalg.contract_all_indices_with_vector)
+def contract_all_indices_with_vector(self, x): 
+    """
+    Contract all indices of the tensor with a vector x, returning:
+    
+    .. math::
+       \sum self_abdc x_a x_b x_c x_d 
+    """
+    if not len(x) == self.dim: 
+        raiseValueError("dimension must match Tensor dimension")
+    num_indep_factors = self.num_indep_factors
+    #contract factors and vectors
+    factors_times_x = torch.einsum('ij,j-> i', self.factors, x)
+    #contract over weights
+    out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
+              for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
+    return out
 
 
 # %% [markdown]
