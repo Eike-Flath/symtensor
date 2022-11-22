@@ -17,7 +17,7 @@
 
 # %% [markdown]
 # ::: {note}  
-# For comparitive micro-timings, which informed some design choices, see the corresponding page in the [developer docs](developers/comparitive_timings).  
+# For comparative micro-timings, which informed some design choices, see the corresponding page in the [developer docs](developers/comparative_timings).  
 # :::
 
 # %%
@@ -30,6 +30,7 @@ import numpy as np
 import pint; ureg = pint.UnitRegistry()
 
 from symtensor import DenseSymmetricTensor
+from symtensor import symalg
 
 ureg.define('μs = 1 * microsecond = μs')  # timeit uses 'μs' in its output strings
 # ureg.define("@alias microsecond = μs")  # This would be better, but doesn't work – https://github.com/hgrecco/pint/issues/1076
@@ -125,7 +126,7 @@ for rank in [3]:
         # # %timeit x = pos_dict[rank,dim]
 
         # vect x vect x vect ... x vect
-        display(timeit("functools.reduce(np.multiply.outer, (vect,)*rank)",
+        display(timeit("functools.reduce(symalg.multiply.outer, (vect,)*rank)",
                        number=10))
 
 # %% tags=["remove-input"]

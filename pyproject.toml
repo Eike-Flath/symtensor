@@ -48,8 +48,11 @@ dependencies = [
 
 # NB: The default torch packages is a hefty 800 MB package, because it includes a complete CUDA.
 #     To use the 200 MB CPU-only version, add the following to the pip command --extra-index-url https://download.pytorch.org/whl/cpu
+# NB: The cython parts require that `python-dev` (or some variant thereof) be installed.
+#     (In a conda environment this should be done automatically)
 test = ["pytest", "pytest-cov", "torch", "pydantic", "tqdm", "ipywidgets"]
-doc = ["ipykernel", "holoviews"]
+doc = ["ipykernel", "holoviews", "jupyter-book<0.14", "jupytext", "cython",
+       "pint", "tabulate", "click_log", "click_completion"]
 
 [project.urls]
 

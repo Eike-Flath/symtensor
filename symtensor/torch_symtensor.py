@@ -457,6 +457,7 @@ def result_array(*arrays_and_types) -> None:
 
 # %% [markdown]
 # (End of generic definitions)
+#
 # --------------------------------
 
 # %% [markdown]
@@ -565,6 +566,9 @@ class PermClsTorchSymmetricTensor(TorchSymmetricTensor, σst.PermClsSymmetricTen
         for idx, value in zip(self.indep_iter_index(), self.indep_iter()):
             A[idx] = value
         return A
+
+# %% [markdown]
+# ### Implementations for the `__array_function__` dispatch protocol
 
 # %% [markdown]
 # #### `array_equal()`

@@ -14,21 +14,20 @@
 # # Symmetric PyTorch tensors from decomposed vectors
 #
 # Symmetric tensors can be written in decomposed form 
-#
-# $$
+# \begin{equation}
 # T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
-# $$
+# \end{equation}
 # with $t^m$ vectors. 
 #
 # Sometimes we also obtain tensors of the form 
-# $$
-# T = \sum_{m} \lambda^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}}
-# $$
+# \begin{equation}
+# T = \sum_{m,n} \lambda^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}}
+# \end{equation}
 # with $u^m, v^m $ vectors. 
 # This Tensor is not symmetric, but we may obtain its symmetrized form via permutations of the outer products
-# $$
-# T = \sum_{m} \lambda^{m,n} \left(\frac{(k+l)!}{l! k!}\right)^{-1}\left[ \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}} + v^n  \otimes \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l-1 \text{ times}} +\dots \right]
-# $$
+# \begin{equation}
+# T = \sum_{m,n} \lambda^{m,n} \left(\frac{(k+l)!}{l! k!}\right)^{-1}\left[ \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l \text{ times}} + v^n  \otimes \underbrace{u^m \otimes \dots \otimes u^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots v^n}_{l-1 \text{ times}} +\dots \right]
+# \end{equation}
 #
 # We perform the symmetrization only when we retrieve specific entries of the tensor. 
 #
@@ -46,7 +45,7 @@
 #  - Adding and removing of factors
 #  - adding and removing of weights
 #  - retrieval of symmetrized entries 
-#  - splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-1,1,...)
+#  - splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-1,1,...)`
 #  - addition of tensors
 #  - multiplication of tensors 
 #  - outer product
@@ -63,14 +62,12 @@
 
 # %% tags=["remove-input"]
 from __future__ import annotations
-import statGLOW.typing
 
 # %% tags=["remove-input"]
 from functools import reduce
 import numpy as np   # To avoid MKL bugs, always import NumPy before Torch
 import torch
 from pydantic import BaseModel
-from collections_extended import bijection
 from scipy.special import binom
 import itertools
 
@@ -80,14 +77,18 @@ from scityping.numpy import Array, DType
 from scityping.torch import TorchTensor
 
 
+# %% [markdown] tags=[]
+# Module only imports
+
 # %% tags=["active-ipynb", "remove-input"]
-# # Module only imports
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
 # import symtensor.utils as utils 
 
- # %% tags=["active-py", "remove-cell"]
- #  #   #Script only imports
+# %% [markdown] tags=["remove-cell"]
+# Script only imports
+
+# %% tags=["active-py", "remove-cell"]
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
@@ -254,10 +255,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     @property
     def num_arrangements(self): 
-        """ number of ways to arrange factors in outer product: 
-        E.G if multiplicities = (2,2), have
+        """Number of ways to arrange factors in outer product
+        
+        E.G if multiplicities = (2,2), one has
         AABB ABAB BBAA ABBA BAAB BABA = 6 = binom(4,2)
-        possibilities. """
+        possibilities.
+        """
         if self.num_indep_factors==1: 
             return 1
         else: 
@@ -274,13 +277,19 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def num_indep_factors(self): 
         """
         Quantifies how many different vectors appear in the outer products.
-        E.g. 
-        T = v\otimes w
-        T' = v\otimes w \otimes w
-        both have num_indep_factors = 2
-        But
-        Q = = v\otimes w \otimes u
-        has num_indep_factors = 3. 
+        For example, both cases below have `num_indep_factors` = 2:
+        
+        .. math::
+        
+           T  &= v\otimes w           \\
+           T' &= v\otimes w \otimes w
+        
+        On the other hand,
+        
+        .. math::
+           Q = v\otimes w \otimes u
+           
+        has `num_indep_factors` = 3. 
         """
         if self.multiplicities is None: 
             raise ValueError("multiplicities unspecified")
@@ -290,9 +299,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     def split_factors(self, pos): 
         """
-        Create equivalent tensor with different
-        multiplicities, where the `pos`th multiplicity 
-        is split of. 
+        Create equivalent tensor with different multiplicities,
+        where the `pos`th multiplicity is split off. 
         
         Inputs: 
         =======
@@ -309,7 +317,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         letters = 'abdcefghijklmnopqrstuvwxy' # keep z seperate
         if self.num_indep_factors > len(letters): 
             #absurdly many factors
-            raise NotImplemenetedError
+            raise NotImplementedError(f"Tensors with more than {len(letters)} are not supported.")
         
         #update weights to incorporate multiplicity split
         indices_before_pos = letters[:pos+1]
@@ -331,8 +339,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                             + self.multiplicities[pos+1:]
         self.multiplicities = new_multiplicities
         
-        #TODO: make splitting off of factor with multiplicity >1
-                    #possible 
+        #TODO: make splitting off of factor with multiplicity >1 possible 
+
     def sort_multiplicities(self): 
         """
         Sort multiplicities in descending order. 
@@ -343,15 +351,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             self.weights = torch.permute(self.weights, multiplicity_permutation)
             self.multiplicities = tuple(sorted(self.multiplicities, reverse = True))
         
-    def match_multiplicities(self, mult): 
+    def match_multiplicities(self, mult: Tuple[int]): 
         """
-        Create equivalent tensor with
-        multiplicities equal to `mult`.
+        Create equivalent tensor with multiplicities equal to `mult`.
         
-        Inputs: 
-        =======
-        m: tuple[int]
-            new multiplicity
+        Parameters 
+        ----------
+        m: new multiplicity
         
         """
         assert sum(mult)== self.rank, "new multiplicity does not match rank"
@@ -379,16 +385,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                 if num_splits == max_num_splits: 
                     raise ValueError("maximum number of splits reached. Reduce number of independent factors")
     
-    def find_common_multiplicities(self,other):
+    def find_common_multiplicities(self,other: DecompSymmetricTensor) -> Tuple[int]:
         """
-        Find min. number of multiplicities 
-        such that multiplicities are equal.
+        Find min. number of multiplicities such that multiplicities are equal.
         
         Inputs: 
         =======
-        other: DecompSymmetricTensor
-            Tensor to which multiplicities
-            should be matched.
+        other: Tensor to which multiplicities should be matched.
         
         Returns: 
         ========
@@ -508,8 +511,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """
         {{base_docstring}}
 
-        .. Note:: Cannot set individual entries of a 
-        DecompSymmetricTensor.
+        .. Note:: Cannot set individual entries of a DecompSymmetricTensor.
         """
         raise NotImplementedError("It is not possible to set individual"+ \
                                  "entries of DecompSymmtetricTensor.")
@@ -588,10 +590,13 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             raise NotImplementedError
             
             
-    def contract_all_indices_with_matrix(self, W): 
+    def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
         """
-        Contract all indices of the tensor with a matrix W:
-        out_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+        Contract all indices of the tensor with a matrix `W`.
+        Returns `out`, where
+        
+        .. math::
+           \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
         """
         out = self.copy()
         out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
@@ -600,8 +605,10 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     def multinomial(self, x): 
         """
-        Contract all indices of the tensor with a vector x:
-        out = \sum self_abdc x_a x_b x_c x_d 
+        Contract all indices of the tensor with a vector x, returning:
+        
+        .. math::
+           \sum self_abdc x_a x_b x_c x_d 
         """
         if not len(x) == self.dim: 
             raiseValueError("dimension must match Tensor dimension")
@@ -611,6 +618,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                   for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
         return out
 
+
+# %% [markdown]
+# $\mathtt{out}$
 
 # %%
 def two_comp_test_tensor(d,r):
@@ -648,7 +658,7 @@ def four_factor_test_tensor(d,r, q = 1):
 
 
 # %% [markdown]
-# # Tensor addition
+# ## Tensor addition
 #
 # ### Fully decomposed tensors
 # We want to do 
@@ -820,105 +830,93 @@ def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor:
 # ## Outer product
 #
 # ### Outer product for fully decomposed Tensors
-# Suppose we have 
-#
-# $$
-# T = \sum_{m} \lambda^m t^m \otimes \dots \otimes t^m
-# $$
-# with $t^m$ vectors and $T$ has rank $\tau$.
-# and
-# $$
+# Suppose we have a tensor $T$ of rank $\tau$,
+# \begin{equation}
+# T = \sum_{m} \lambda^m t^m \otimes \dots \otimes t^m \,,
+# \end{equation}
+# where the $t^m$ are vectors, and a tensor $U$ of rank $\nu$,
+# \begin{equation}
 # U = \sum_{m} \kappa^m u^m \otimes \dots \otimes  u^m
-# $$
-# with $u^m$ vectors and $T$ has rank $\nu$.
+# \end{equation}
+# with $u^m$ also vectors.
 #
 # Now we want to compute
-# $$
-# V = T \otimes U \\
-# = \sum_{m,n} \lambda^m \kappa^n t^m \otimes t^m \otimes \dots t^m \otimes u^n \otimes \dots \otimes  u^n
-# $$
+# \begin{align*}
+# V &= T \otimes U \\
+# &= \sum_{m,n} \lambda^m \kappa^n t^m \otimes t^m \otimes \dots t^m \otimes u^n \otimes \dots \otimes  u^n
+# \end{align*}
 # with $\nu^{m,n} = \lambda^m \kappa^n $ a matrix.
 # We denote by $M,N$ the number of factors in $T,V$.
 # To place everything on a common index, we set
 # $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
-# $$
-# \Lambda^{1:M, M+1:M+N} = \nu
-# $$
-# With all other entries of $\Lambda =0$. 
-#
+# \begin{equation}
+# \Lambda^{1:M, M+1:M+N} = \nu \,,
+# \end{equation}
+# with all other entries of $\Lambda =0$. 
 
 # %% [markdown] tags=[]
 #
 # ### Outer product for partially decomposed tensors
 #
 # #### Bipartite and fully decomposed tensor
-# Suppose we have 
+# Let $T$, $U$ be tensor be tensors of rank $\tau$ and $\nu$ respectively, with
+# \begin{align*}
+# T &= \sum_{m=1}^M \lambda^{m,n} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} \\
+# U &= \sum_{m=1}^N \kappa^m \underbrace{u^m \otimes \dots \otimes u^m}_{j \text{ times}}
+# \end{align*}
+# with $t^m$ and $u^m$ vectors.
 #
-# $$
-# T = \sum_{m=1}^M \lambda^{m,n} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} 
-# $$
-# with $t^m$ vectors and $T$ has rank $\tau$.
-# and
-# $$
-# U = \sum_{m=1}^N \kappa^m \underbrace{u^m \otimes \dots \otimes u^m}_{j \text{ times}}
-# $$
-# with $u^m$ vectors and $T$ has rank $\nu$.
-#
-# The result will be a Tensor of multiplicity $(k,l,j)$.
-# $$
-# V = T \otimes U \\
-# = \sum_{m=1,n=1}^M \sum_{o=1}^N \lambda^{m,n} \kappa^o \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} \otimes \underbrace{u^o \otimes \dots \otimes u^o}_{j \text{ times}} \\
-# = \sum_{m=1,n=1,o=1}^{M+N} \nu^{m,n,o} \underbrace{v^m \otimes \dots \otimes v^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots \otimes v^n}_{l \text{ times}} \otimes \underbrace{v^o \otimes \dots \otimes v^o}_{j \text{ times}}
-# $$
+# The result will be a Tensor of multiplicity $(k,l,j)$:
+# \begin{align*}
+# V &= T \otimes U \\
+# &= \sum_{m=1,n=1}^M \sum_{o=1}^N \lambda^{m,n} \kappa^o \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} \otimes \underbrace{u^o \otimes \dots \otimes u^o}_{j \text{ times}} \\
+# &= \sum_{m=1,n=1,o=1}^{M+N} \nu^{m,n,o} \underbrace{v^m \otimes \dots \otimes v^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots \otimes v^n}_{l \text{ times}} \otimes \underbrace{v^o \otimes \dots \otimes v^o}_{j \text{ times}}
+# \end{align*}
 # with
-# $$
+# \begin{equation}
 # v^m := \begin{cases}
 # t^m & m \leq M \\
 # u^m & M+1 \leq m \leq M+N
 # \end{cases}
-# $$
+# \end{equation}
 # and 
-# $$
+# \begin{equation}
 # \nu^{m,n,o} := \begin{cases}
 # \lambda^{m,n} \kappa^o & m,n \leq M \text{ and } M+1 \leq o \leq M+N \\
 # 0 & \text{else}
 # \end{cases}
-# $$
+# \end{equation}
+#
 # #### Bipartite and bipartite tensor
-# Suppose we have 
+# Let $T$ be a tensor of rank $\tau$ and $U$ a tensor of rank $\nu$, decomposed as 
+# \begin{align*}
+# T &= \sum_{m=1}^M \lambda^{m,n} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} 
+# U &= \sum_{m=1,n=1}^N \kappa^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{j \text{ times}}\otimes \underbrace{u^n \otimes \dots \otimes u^n}_{i \text{ times}}
+# \end{align*}
+# with $t^m$, $u^m$ vectors.
 #
-# $$
-# T = \sum_{m=1}^M \lambda^{m,n} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} 
-# $$
-# with $t^m$ vectors and $T$ has rank $\tau$.
-# and
-# $$
-# U = \sum_{m=1,n=1}^N \kappa^{m,n} \underbrace{u^m \otimes \dots \otimes u^m}_{j \text{ times}}\otimes \underbrace{u^n \otimes \dots \otimes u^n}_{i \text{ times}}
-# $$
-# with $u^m$ vectors and $T$ has rank $\nu$.
-#
-# The result will be a Tensor of multiplicity $(k,l,j,i)$.
-# $$
-# V = T \otimes U \\
-# = \sum_{m,n=1}^M \sum_{o,p=1}^N \lambda^{m,n} \kappa^{o,p} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} \otimes \underbrace{u^o \otimes \dots \otimes u^o}_{j \text{ times}}  \otimes \underbrace{u^p \otimes \dots \otimes u^p}_{i \text{ times}}\\
-# = \sum_{m,n,o,p=1}^{M+N} \nu^{m,n,o,p} \kappa^{o,p} \underbrace{v^m \otimes \dots \otimes v^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots \otimes v^n}_{l \text{ times}} \otimes \underbrace{v^o \otimes \dots \otimes v^o}_{j \text{ times}} \otimes \underbrace{v^p \otimes \dots \otimes v^p}_{i \text{ times}}
-# $$
+# The result will be a Tensor of multiplicity $(k,l,j,i)$:
+# \begin{align*}
+# V &= T \otimes U \\
+# &= \sum_{m,n=1}^M \sum_{o,p=1}^N \lambda^{m,n} \kappa^{o,p} \underbrace{t^m \otimes \dots \otimes t^m}_{k \text{ times}} \otimes \underbrace{t^n \otimes \dots \otimes t^n}_{l \text{ times}} \otimes \underbrace{u^o \otimes \dots \otimes u^o}_{j \text{ times}}  \otimes \underbrace{u^p \otimes \dots \otimes u^p}_{i \text{ times}}\\
+# &= \sum_{m,n,o,p=1}^{M+N} \nu^{m,n,o,p} \kappa^{o,p} \underbrace{v^m \otimes \dots \otimes v^m}_{k \text{ times}} \otimes \underbrace{v^n \otimes \dots \otimes v^n}_{l \text{ times}} \otimes \underbrace{v^o \otimes \dots \otimes v^o}_{j \text{ times}} \otimes \underbrace{v^p \otimes \dots \otimes v^p}_{i \text{ times}}
+# \end{align*}
 # with
-# $$
+# \begin{equation}
 # v^m := \begin{cases}
 # t^m & m \leq M \\
 # u^m & M+1 \leq m \leq M+N
 # \end{cases}
-# $$
+# \end{equation}
 # and 
-# $$
+# \begin{equation}
 # \nu^{m,n,o,p} := \begin{cases}
 # \lambda^{m,n} \kappa^{o,p} & m,n \leq M \text{ and } M+1 \leq o,p \leq M+N \\
 # 0 & \text{else}
 # \end{cases}
-# $$
+# \end{equation}
 #
-# ### Tripartite and fully decomposed Tensor
+# #### Tripartite and fully decomposed Tensor
 #
 # The generalization of the scheme above is straightforward. 
 
@@ -977,57 +975,55 @@ def symmetric_multiply_outer(self,other):
 #
 # ### Single contraction 
 # #### for fully decomposed tensors
-# Suppose we have 
 #
-# $$
-# T = \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m
-# $$
-# with $t^m$ vectors and $T$ has rank $\tau$.
-# and
-# $$
-# U = \sum_{m} \kappa^m u^m \otimes u^m \otimes \dots u^m
-# $$
-# with $u^m$ vectors and $T$ has rank $\nu$.
+# Let $T$, $U$ be tensors of rank $\tau$ and $\nu$ respectively, decomposed as
+# \begin{align*}
+# T &= \sum_{m} \lambda^m t^m \otimes t^m \otimes \dots t^m \,,\\
+# U &= \sum_{m} \kappa^m u^m \otimes u^m \otimes \dots u^m \,,
+# \end{align*}
+# with $t^m$, $u^m$ vectors.
 #
 # Now we want to contract to 
-# $$
-# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-1},j} U_{j,i_{tau},...i_{\tau+\nu-2}} \\
-# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
-# = \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
-# $$
+# \begin{align*}
+# V_{i_1,...i_{\tau+\nu-2}} &= \sum_j T_{i_1,...i_{\tau-1},j} U_{j,i_{tau},...i_{\tau+\nu-2}} \\
+# & = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
+# &= \sum_{m,n} \sum_n \nu^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
+# \end{align*}
 # with $\nu^{m,n} = \lambda^m \kappa^n \sum_j t^m_j u^n_j$ a matrix.
+#
 # We denote by $M,N$ the number of factors in $T,V$.
 # To place everything on a common index, we set
 # $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
-# $$
-# \Lambda^{1:M, M+1:M+N} = \nu
-# $$
-# With all other entries of $\Lambda =0$.
+# \begin{equation}
+# \Lambda^{1:M, M+1:M+N} = \nu \,,
+# \end{equation}
+# with all other entries of $\Lambda$ set to zero.
 
 # %% [markdown]
 # ### Double contraction for fully decomposed tensors
 #
 # As above, but we evaluate
-# $$
-# V_{i_1,...i_{\tau+\nu-2}} = \sum_j T_{i_1,...i_{\tau-2},j,k} V_{j,k,i_{tau},...i_{\tau+\nu-4}} \\
-# = \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \sum_k t^m_k u^n_k \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
-# = \sum_{m,n} \sum_n \tilde{\nu}^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
-# $$
+# \begin{align*}
+# V_{i_1,...i_{\tau+\nu-2}} &= \sum_j T_{i_1,...i_{\tau-2},j,k} V_{j,k,i_{tau},...i_{\tau+\nu-4}} \\
+# &= \sum_m \sum_n \lambda^m \kappa^n \sum_j t^m_j u^n_j \sum_k t^m_k u^n_k \left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}} \\
+# &= \sum_{m,n} \sum_n \tilde{\nu}^{m,n}\left(\underbrace{t^m \otimes \dots \otimes t^m}_{\tau-1 \text{ times}}  \underbrace{u^n\otimes \dots \otimes u^n}_{\mu-1 \text{ times}} \right)_{i_1,...i_{\tau+\nu-2}}
+# \end{align*}
 # with $\tilde{\nu}^{m,n} = \lambda^m \kappa^n (\sum_j t^m_j u^n_j)^2$ a matrix.
+#
 # We denote by $M,N$ the number of factors in $T,V$.
 # To place everything on a common index, we set
 # $t^{M+1},\dots, t^{M+N} = u^1,\dots u^N$ and furthermore set the weights to be
-# $$
-# \Lambda^{1:M, M+1:M+N} = \tilde{\nu}
-# $$
-# With all other entries of $\Lambda =0$. 
+# \begin{align*}
+# \Lambda^{1:M, M+1:M+N} = \tilde{\nu} \,,
+# \end{align*}
+# with all other entries of $\Lambda$ set to zero. 
 # In other words, $\Lambda$ has block structure: 
-# $$
+# \begin{align*}
 # \Lambda = \begin{pmatrix}
 # 0 & \tilde{\nu}\\
 # 0 & 0
-# \end{pmatrix}
-# $$
+# \end{pmatrix} \,.
+# \end{align*}
 
 # %%
 @DecompSymmetricTensor.implements(np.tensordot)

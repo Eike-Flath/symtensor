@@ -134,7 +134,7 @@ __all__ = ["PermSymmetricTensor"]
 #
 # Not all functionality one would expect from an array-like object is yet available; features are implemented as they become needed.
 #
-# By design, operations on `PermClsSymmetricTensor`s involve iterating over values in non-trivial order, and cannot be expressed as simple, already-optimized dot products. Optimizing these operations is critical to applying our theory to more than low-dimensional toy examples; work in this regard, and justifications for some of the design decisions, can be found in the [developer docs](../../docs/developers/SymmetricTensor/symmetric_tensor_algdesign.ipynb)
+# By design, operations on `PermClsSymmetricTensor`s involve iterating over values in non-trivial order, and cannot be expressed as simple, already-optimized dot products. Optimizing these operations is critical to applying our theory to more than low-dimensional toy examples; work in this regard, and justifications for some of the design decisions, can be found in the [developer docs](../developers/symmetric_tensor_algdesign.ipynb)
 
 # %% [markdown]
 # ### Notation summary

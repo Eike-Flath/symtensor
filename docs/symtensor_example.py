@@ -13,7 +13,7 @@
 # %% [markdown]
 # # Example usage
 
-# %%
+# %% jupyter={"outputs_hidden": true} tags=[]
 from symtensor import DenseSymmetricTensor
 
 import numpy as np
@@ -23,8 +23,8 @@ s = DenseSymmetricTensor(rank = 4, dim = 5)
 s['iiii'] = 1.0
 #alle einträge mit allen indices unterschiedlich setzen
 
-s['ijkl'] = [np.random.rand() for index in s.index_class_iter(class_label='ijkl')]
-s['ijjj'] = [np.random.rand() for index in s.index_class_iter(class_label='ijjj')]
+s['ijkl'] = [np.random.rand() for index in s.permcls_indep_iter('ijkl')]
+s['ijjj'] = [np.random.rand() for index in s.permcls_indep_iter('ijjj')]
 
 #zeige alle permutationsklassen:
 print([permcls for permcls in s.perm_classes])
@@ -34,5 +34,3 @@ print([permcls for permcls in s.perm_classes])
 s_dense = s.todense()
 
 print(s_dense)
-
-# %%

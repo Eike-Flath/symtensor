@@ -13,7 +13,9 @@ parts:
     - file: symmetric_formats
       sections:
       - file: sources/dense_symtensor
-      # - file: sources/permcls_symtensor
+      - file: sources/permcls_symtensor
+      # FIXME: Rename file to decomp_symtensor
+      - file: sources/decomp_symmtensor
     - file: backends
       sections:
       - file: sources/torch_symtensor
@@ -24,10 +26,16 @@ parts:
     chapters:
     - file: use_case_timings
       sections:
-      - file: developers/comparitive_timings
+      - file: developers/comparative_timings
     - file: developers/symmetric_tensor_algdesign
+
+  - caption: API
+    chapters:
+    - file: testing/api
 
   - caption: Testing
     chapters:
     - file: tests/test_dense_numpy
     - file: tests/test_dense_torch
+    - file: tests/test_permcls_numpy
+    - file: tests/test_permcls_torch

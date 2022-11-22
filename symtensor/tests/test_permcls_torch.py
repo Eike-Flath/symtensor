@@ -184,7 +184,7 @@ class TestPermClsTorchSymtensorAPI(PermClsAPI):
 #     show_test(API.test_block_assignment)
 
 # %% [markdown]
-# Element-wise assignement: Assigning one value modifies all associated symmetric components.
+# Element-wise assignment: Assigning one value modifies all associated symmetric components.
 
 # %% tags=["remove-input", "active-ipynb"]
 #     show_test(API.test_elementwise_assignment)

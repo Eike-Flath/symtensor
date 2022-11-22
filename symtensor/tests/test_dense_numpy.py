@@ -22,7 +22,7 @@ from symtensor.testing.api import SymTensorAPI
 from symtensor.testing.utils import Code, NBTestRunner
 
 
-# %% [markdown] tags=["remove-input"]
+# %% [markdown] tags=["remove-input", "hide-input"]
 # **Explanation of this document structure**
 # This file is meant for two different types of consumption:
 # - As the file `pytest` inspects to obtain the list of tests to run on this SymmetricTensor class

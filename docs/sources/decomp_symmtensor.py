@@ -1,0 +1,1 @@
+../../symtensor/decomp_symmtensor.py
