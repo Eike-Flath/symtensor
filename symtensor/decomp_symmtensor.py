@@ -938,7 +938,7 @@ def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor:
 # The generalization of the scheme above is straightforward. 
 
 # %%
-@DecompSymmetricTensor.implements(np.outer)
+#@DecompSymmetricTensor.implements(symalg.outer)
 def symmetric_outer(self,other): 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -950,7 +950,7 @@ def symmetric_outer(self,other):
     if not other.num_indep_factors+self.num_indep_factors<=4:
         raise NotImplementedError
     if other.num_indep_factors> self.num_indep_factors: 
-        return np.outer(other, self)
+        return symmetric_outer(other, self)
     
     out = DecompSymmetricTensor(rank = self.rank+other.rank, dim = self.dim)
     out.factors = torch.cat((self.factors , other.factors ), 0) 
@@ -958,7 +958,7 @@ def symmetric_outer(self,other):
     if self.num_indep_factors ==1 and other.num_indep_factors==1:
         #higher multiplicities come first
         if other.multiplicities[0] > self.multiplicities[0]: 
-            return np.outer(other,self)
+            return symmetric_outer(other,self)
         out.multiplicities = (self.multiplicities[0], other.multiplicities[0])
         out.weights = torch.zeros((out.num_factors,)*2) 
         out.weights[:self.num_factors,self.num_factors:] = torch.einsum('m,n->mn', self.weights, other.weights)
@@ -979,10 +979,10 @@ def symmetric_outer(self,other):
         out.weights[:self.num_factors,:self.num_factors,self.num_factors:,self.num_factors:] = torch.einsum('mn,op->mnop', self.weights, other.weights)
     return out
 
-
+'''
 @DecompSymmetricTensor.implements_ufunc.outer(np.multiply)
 def symmetric_multiply_outer(self,other): 
-    return np.outer(self,other)
+    return np.outer(self,other)'''
 
 
 
@@ -1043,11 +1043,11 @@ def symmetric_multiply_outer(self,other):
 # \end{align*}
 
 # %%
-@DecompSymmetricTensor.implements(np.tensordot)
+@DecompSymmetricTensor.implements(symalg.tensordot)
 def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Union[DecompSymmetricTensor, float]: 
     #check if compatible
     if axes == 0: 
-        return np.outer(self,other)
+        return symmetric_outer(self,other)
     if not isinstance(other, DecompSymmetricTensor): 
         raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
     if not self.dim == other.dim: 
@@ -1061,7 +1061,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
         #fully decomp tensors 
         if self.num_indep_factors==1:
             if other.multiplicities[0] > self.multiplicities[0]: 
-                return np.tensordot(other,self, axes = axes)
+                return symalg.tensordot(other,self, axes = axes)
             if self.multiplicities[0]>1:
                 out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
                 if other.multiplicities[0]>1:

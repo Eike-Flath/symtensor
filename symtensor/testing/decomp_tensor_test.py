@@ -557,7 +557,7 @@ if __name__ == "__main__":
     B.factors = B_factors 
     B.multiplicities =  (1,)
     
-    C = np.outer(A,B)
+    C = symalg.tensordot(A,B, axes = 0)
     C_dense = torch.outer(A_factors[0,:],B_factors[1,:])
     #compare to symmetrized tensor
     assert torch.allclose( C.todense(), (C_dense+ C_dense.T)/2.0)
@@ -577,7 +577,7 @@ if __name__ == "__main__":
     B.factors = B_factors 
     B.multiplicities =  (2,)
     
-    C = np.outer(A,B)
+    C = symalg.tensordot(A,B, axes = 0)
     assert torch.isclose(C[0,0,0,0],A[0,0]*B[0,0])
     assert  torch.isclose(C[1,0,0,0],(A[1,0]*B[0,0]+A[0,0]*B[1,0])/2.0)
     assert  torch.isclose(C[1,1,0,0] , (A[1,1]*B[0,0]+A[0,0]*B[1,1]+4*A[1,0]*B[1,0])/6.0)
@@ -590,7 +590,7 @@ if __name__ == "__main__":
     # rank 2 bipartite & rank 2 fully decomposed
     A = two_factor_test_tensor(3,2, q = 1)
     B = two_comp_test_tensor(3,2)
-    C = np.outer(A,B)
+    C =  symalg.tensordot(A,B, axes = 0)
     
     C_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C_dense = utils.symmetrize(C_dense)
@@ -599,7 +599,7 @@ if __name__ == "__main__":
     # rank 3 tripartite & rank 2 fully decomposed
     A = three_factor_test_tensor(2,3, q = 1)
     B = two_comp_test_tensor(2,2)
-    C = np.outer(A,B)
+    C =  symalg.tensordot(A,B, axes = 0)
     C_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C_dense = utils.symmetrize(C_dense)
     assert np.allclose(C.todense().numpy(), sym_C_dense, atol =1e-5)
@@ -607,7 +607,7 @@ if __name__ == "__main__":
     # rank 2 bipartite & rank 2 bipartite
     A1 = two_factor_test_tensor(2,2, q = 1)
     B1 = two_factor_test_tensor(2,2, q = 1)
-    C1 = np.outer(A,B)
+    C1 =  symalg.tensordot(A,B, axes = 0)
     C1_dense = np.tensordot(A.todense(), B.todense(), axes=0)
     sym_C1_dense = utils.symmetrize(C1_dense)
     assert np.allclose(C1.todense().numpy(), sym_C1_dense, atol =1e-5)
@@ -624,25 +624,25 @@ if __name__ == "__main__":
         tensor_1 = two_comp_test_tensor(d,r)
         for r_1 in range(2,4):
             tensor_2 = two_comp_test_tensor(d,r_1)
-            test_tensor_13 = np.tensordot(tensor_1, tensor_2, axes=0)
-            assert np.allclose(test_tensor_13, np.multiply.outer(tensor_1,tensor_2))
+            test_tensor_13 = symalg.tensordot(tensor_1, tensor_2, axes=0)
+            assert np.allclose(test_tensor_13.todense(), symalg.tensordot(tensor_1,tensor_2, axes =0).todense())
 
             #Contract over first and last indices:
-            test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
+            test_tensor_14 =  symalg.tensordot(tensor_1, tensor_2, axes=1)
             dense_tensor_14 = utils.symmetrize(np.tensordot(
                 tensor_1.todense(), tensor_2.todense(), axes=1 ))
             assert np.allclose(test_tensor_14.todense(), dense_tensor_14)
 
-            test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes = 2)
+            test_tensor_141 =  symalg.tensordot(tensor_1, tensor_2, axes = 2)
             if tensor_1.rank+tensor_2.rank > 5:
                 dense_141 = torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2).numpy()
                 sym_dense_141 = utils.symmetrize(dense_141)
                 assert np.allclose(test_tensor_141.todense().numpy(), sym_dense_141)
                 if tensor_1.rank==3 and tensor_2.rank == 3:
-                    test_tensor_142 =  np.tensordot(tensor_1, tensor_2, axes = 3)
+                    test_tensor_142 =  symalg.tensordot(tensor_1, tensor_2, axes = 3)
                     assert torch.allclose(test_tensor_142, 
                                       torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=3))
-                test_tensor_141 =  np.tensordot(tensor_1, tensor_2, axes = 2)
+                test_tensor_141 =  symalg.tensordot(tensor_1, tensor_2, axes = 2)
             elif tensor_1.rank+tensor_2.rank == 4:
                 assert torch.allclose(test_tensor_141, 
                                       torch.tensordot(tensor_1.todense(), tensor_2.todense(), dims=2))
@@ -654,7 +654,7 @@ if __name__ == "__main__":
         for r_1 in range(2,4):
             tensor_2 = two_comp_test_tensor(d,r_1)
             #Contract over first and last indices:
-            test_tensor_14 =  np.tensordot(tensor_1, tensor_2, axes=1)
+            test_tensor_14 =  symalg.tensordot(tensor_1, tensor_2, axes=1)
             dense_tensor_14 = utils.symmetrize(np.tensordot(
                 tensor_1.todense(), tensor_2.todense(), axes=1 ))
             assert np.allclose(test_tensor_14.todense(), dense_tensor_14, atol =1e-5)
