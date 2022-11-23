@@ -111,7 +111,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     _data : Dict[Tuple[int], Union[float, Array[float,1]]]
     
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
-                 data: Union[Array, Number]=np.float64(0),
+                 data: Union[Array, Number] = np.float64(0),
                  dtype: Union[str,DType]=None,
                  device: Union[str, 'torch.device']="cpu"):
         """
@@ -232,6 +232,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def weights(self, value):
         """Weight of each component"""
         self._weights = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["weights"] = self._weights
         
     @property
     def factors(self):
@@ -242,6 +245,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def factors(self, value):
         """Factors in outer product"""
         self._factors = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["factors"] = self._factors
     
     @property
     def multiplicities(self):
@@ -254,6 +260,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """Number of repeats of factors 
         in outer product"""
         self._multiplicities = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["multiplicities"] = self._multiplicities
     
     @property
     def num_arrangements(self): 
@@ -773,7 +782,7 @@ def contract_all_indices_with_vector(self, x):
 # The generalization of the scheme outlined above is straightforward.
 
 # %%
-@DecompSymmetricTensor.implements_ufunc(np.add)
+#@DecompSymmetricTensor.implements_ufunc(symalg.add)
 def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -820,7 +829,7 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
 
 
 # %%
-@DecompSymmetricTensor.implements_ufunc(np.multiply)
+#@DecompSymmetricTensor.implements(symalg.multiply)
 def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor: 
     #check if compatible
     if not isinstance(other, float) or isinstance(other, int):
@@ -1169,12 +1178,12 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Un
                                 torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
                                             self.weights, factor_dot, other.weights)
                  #weight with relative number of occurences in symmetrization sum
-                out_tensors += [np.multiply(out,m*1.0/self.rank)]
+                out_tensors += [symmetric_multiply(out,m*1.0/self.rank)]
             
             #sum up to symmetrized result
             result = out_tensors[0]
             for tensor in out_tensors[1:]: 
-                result = result + tensor
+                result = symmetric_add(result,tensor)
             return result 
         else:
             raise NotImplementedError("Contraction of two partially decomposed tensors not yet possible")
