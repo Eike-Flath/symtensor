@@ -663,13 +663,11 @@ def contract_all_indices_with_vector(self, x):
     .. math::
        \sum self_abdc x_a x_b x_c x_d 
     """
-    if not len(x) == self.dim: 
-        raiseValueError("dimension must match Tensor dimension")
     num_indep_factors = self.num_indep_factors
     #contract factors and vectors
-    factors_times_x = torch.matmul(self.factors, x)
+    factors_times_x = self.factors.numpy()@x
     #contract over weights
-    out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
+    out = sum( self.weights.numpy()[index]*np.prod(np.array([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
               for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
     return out
 

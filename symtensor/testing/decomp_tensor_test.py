@@ -698,7 +698,7 @@ if __name__ == "__main__":
         x = torch.zeros(d)
         x[i] =1
         assert torch.isclose(A[(i,)*r],symalg.contract_all_indices_with_vector(A,x))
-    
+        
     d = 3
     r =3
     A = two_factor_test_tensor(d,r)
