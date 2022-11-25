@@ -83,6 +83,7 @@ from scityping.torch import TorchTensor
 # %% tags=["active-ipynb", "remove-input"]
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
+# from symtensor.decomp_utils import eigendecompostition_without_zero_eigs
 # import symtensor.symalg as symalg
 # import symtensor.utils as utils 
 
@@ -94,6 +95,7 @@ from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
 from . import symalg
+from .decomp_utils import eigendecompostition_without_zero_eigs
 
 
 # %%
@@ -442,9 +444,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             #need only rearange mulitplicities
             assert other.num_indep_factors == self.num_indep_factors
             return tuple(sorted(self.multiplicities, reverse = True))
-                
-                
-    
+                         
     def copy(self):
         """Copy"""
         other = DecompSymmetricTensor(rank = self.rank, dim=self.dim)
@@ -600,7 +600,19 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         else:
             raise NotImplementedError
             
-            
+    def reduce_factors(self): 
+        """
+        Ensure a the minimal number of independent factors are stored. 
+        """
+        if self.rank == 1: 
+            self.factors  = self.todense().unsqueeze(0)
+            self.weights = torch.Tensor([1])
+        elif self.rank == 2:
+            eigvals, eigvecs = eigendecompostition_without_zero_eigs(self.todense())
+            self.weights = eigvals
+            self.factors  = eigvecs.T
+            self.multiplicities = (2,)
+
     
 
 # %% [markdown]
@@ -1238,4 +1250,58 @@ def symmetric_tensorcompare(self, other: DecompSymmetricTensor, axes: int = 2) -
     self_flat = torch.Tensor([self[index] for index in self.indep_iter_repindex()])
     other_flat = torch.Tensor([other[index] for index in other.indep_iter_repindex()])
     return torch.allclose(self_flat,other_flat)
+
+
+# %% [markdown]
+# ### Decomp Tensor from Matrix/Vector
+
+# %%
+def decomp_tensor_from_matrix(matrix, keep = 'all'): 
+    """
+    create Decomp tensor from symmetric matrix. 
+    
+    Inputs: 
+    =======
+    matrix: torch.Tensor
+        symmetric matrix
+    keep: Union[str, int] = 'all'
+        if int, keeps only this number of largest (in magnitude) eigenvalues
+        otherwise, all nonzero eigenvalues are kept
+        
+    Returns:
+    =======
+    tensor: DecompSymmetricTensor
+        equivalent decomposed tensor
+    """
+    assert torch.allclose(matrix,matrix.T), "matrix must be symmetric"
+    eigvals, eigvecs = eigendecompostition_without_zero_eigs(matrix, keep = keep)
+    
+    tensor = DecompSymmetricTensor(rank = 2, dim= matrix.shape[0])
+    tensor.multiplicities = (2,)
+    tensor.weights = eigvals
+    tensor.factors = eigvecs.T
+    return tensor
+
+
+# %%
+def decomp_tensor_from_vector(vector): 
+    """
+    create Decomp tensor from vector. 
+    
+    Inputs: 
+    =======
+    vector: torch.Tensor
+        vector
+        
+    Returns:
+    =======
+    tensor: DecompSymmetricTensor
+        equivalent decomposed tensor
+    """
+    dim = len(vector)
+    tensor = DecompSymmetricTensor(rank = 1, dim = dim)
+    tensor.multiplicities = (1,)
+    tensor.weights = torch.Tensor([1])
+    tensor.factors = vector.reshape((1,dim))
+    return tensor
 
