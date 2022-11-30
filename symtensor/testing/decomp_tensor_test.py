@@ -6,7 +6,7 @@ from scipy.special import binom
 
 # %% tags=["active-ipynb", "remove-input"]
 # # Module only imports
-# from symtensor.decomp_symmtensor import DecompSymmetricTensor, symmetric_add,symmetric_multiply
+# from symtensor.decomp_symmtensor import DecompSymmetricTensor, symmetric_add,symmetric_multiply,decomp_tensor_from_matrix,decomp_tensor_from_vector
 # import symtensor.utils as utils 
 # import symtensor.symalg as symalg
 
@@ -314,6 +314,20 @@ if __name__ == "__main__":
                 + torch.tensordot(factors[1,:],torch.outer(factors[1,:],factors[1,:]),dims=0) \
              +0.01*torch.tensordot(factors[2,:],torch.outer(factors[2,:],factors[2,:]),dims=0) 
     assert torch.allclose(B.todense(),B_dense)
+    
+    #second order partially decomposed: Two "factors" AB
+    C = DecompSymmetricTensor(rank = 2, dim =3)   
+    weights = torch.Tensor([[0.5,0.5],[0,0.1]])
+    factors =  torch.randn(size =(2,3))
+    C.weights = weights
+    C.factors = factors 
+    C.multiplicities =  (2,1)
+    
+    C_dense = 0.5*torch.outer(factors[0,:],factors[0,:]) \
+                + 0.5/binom(2,1)*(torch.outer(factors[0,:],factors[1,:]) \
+                     +torch.outer(factors[1,:],factors[0,:]) ) \
+             +0.1*torch.outer(factors[1,:],factors[1,:]) 
+    assert torch.allclose(C.todense(),C_dense)
     
     #third order partially decomposed: Two "factors" AAB
     C = DecompSymmetricTensor(rank = 3, dim =3)   
@@ -695,25 +709,25 @@ if __name__ == "__main__":
     r =3
     A = two_comp_test_tensor(d,r)
     for i in range(d): 
-        x = torch.zeros(d)
+        x = np.zeros(d)
         x[i] =1
-        assert torch.isclose(A[(i,)*r],symalg.contract_all_indices_with_vector(A,x))
+        assert np.isclose(A[(i,)*r],symalg.contract_all_indices_with_vector(A,x))
         
     d = 3
     r =3
     A = two_factor_test_tensor(d,r)
     for i in range(d): 
-        x = torch.zeros(d)
+        x = np.zeros(d)
         x[i] =1
-        assert torch.isclose(A[(i,)*r], symalg.contract_all_indices_with_vector(A,x))
+        assert np.isclose(A[(i,)*r], symalg.contract_all_indices_with_vector(A,x))
         
     d = 3
     r = 5
     A = three_factor_test_tensor(d,r)
     for i in range(d): 
-        x = torch.zeros(d)
+        x = np.zeros(d)
         x[i] = 1
-        assert torch.isclose(A[(i,)*r], symalg.contract_all_indices_with_vector(A,x))
+        assert np.isclose(A[(i,)*r], symalg.contract_all_indices_with_vector(A,x))
 
 
 # %%
@@ -744,4 +758,44 @@ if __name__ == "__main__":
     assert torch.allclose(A.todense(), B.todense(), rtol=1e-4)
     assert B.multiplicities == (1,1,1,2)
 
-# %%
+# %% [markdown]
+# ### Decomp Tensor from Matrix/Vector
+
+    # %%
+    testdim = 3
+    a = torch.randn(testdim, testdim)
+    b = torch.zeros(10,10)
+    b[:testdim,:testdim] = a
+    b = b + b.t()
+    sym_b = decomp_tensor_from_matrix(b, keep = 'all')
+    assert torch.allclose(sym_b.todense(),b, atol = 1e-5)
+
+    # %%
+    # Reduction 
+    d = 3
+    r = 1
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    A.todense()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense())
+    d = 3
+    r = 2
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense())
+    A = two_factor_test_tensor(d,r)
+    B = A.copy()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense())
+    d = 3
+    r = 3
+    A = two_comp_test_tensor(d,r)
+    B = A.copy()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense())
+    A = two_factor_test_tensor(d,r)
+    B = A.copy()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense())

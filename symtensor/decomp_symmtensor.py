@@ -52,13 +52,16 @@
 #  - tensordot, but axes >1 does not work for `num_indep_factors > 1`.
 #  
 #  ## Known bugs: 
-#  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (fixed now?)
+#  - [x] Addition of some partially decomposed tensors doesn't work, potentially too many splits (fixed now.)
 #  
 #  ## Open To-dos
+#  - [ ] make data format match 
+#  - [ ] change symmetric_add and symmetric_multiply to symalg.add and symalg.multiply
+#  - [ ] reduce factors of rank >2 tensors
 #  - [ ] tensordot, with axes >1 working for `num_indep_factors > 1`.
 #  - [ ] splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-d,d,...)
 #  - [ ] all of the above for `num_indep_factors > 4`.
-#  - [ ] tensor.weights typically has many zeros, exploit this?
+#  - [ ] tensor.weights typically has many zeros, exploit this? (with tensorly? TensorTrains?)
 
 # %% tags=["remove-input"]
 from __future__ import annotations
@@ -556,17 +559,21 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                     dense_tensor += self.weights[i]* outer_prod
             return dense_tensor
         elif self.num_indep_factors == 2:
-            for i,j in itertools.product(range(self.num_factors),repeat =2):
-                #symmetrize outer products:
-                #loop over arrangements of factors in outer product
-                for pos_1, pos_2 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
-                    indices = np.array([i,]*self.rank)
-                    #put jth component in pos_2th position etc.
-                    indices[pos_2] = j
-                    outer_prod = self.factors[indices[0],:]
-                    for m in range(self.rank-1):
-                        outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
-                    dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
+            if self.rank == 2: 
+                dense_tensor_unsym = torch.einsum('ab, ai, bj -> ij', self.weights, self.factors, self.factors)
+                dense_tensor = 0.5*(dense_tensor_unsym+ dense_tensor_unsym.T)
+            else:
+                for i,j in itertools.product(range(self.num_factors),repeat =2):
+                    #symmetrize outer products:
+                    #loop over arrangements of factors in outer product
+                    for pos_1, pos_2 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                        indices = np.array([i,]*self.rank)
+                        #put jth component in pos_2th position etc.
+                        indices[pos_2] = j
+                        outer_prod = self.factors[indices[0],:]
+                        for m in range(self.rank-1):
+                            outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
+                        dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
             return dense_tensor
         elif self.num_indep_factors == 3:
             for i,j,k in itertools.product(range(self.num_factors),repeat =3):
