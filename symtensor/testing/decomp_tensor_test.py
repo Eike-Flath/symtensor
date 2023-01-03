@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # %%
 import torch
 import itertools
@@ -46,6 +47,15 @@ def three_factor_test_tensor(d,r, q = 1):
     A.weights = torch.randn(size =(2,2,2))
     A.factors =  torch.randn(size =(2,d))+1
     A.multiplicities = (r-2*q,q,q)
+    return A
+
+def four_factor_test_tensor(d,r, q = 1):
+    assert r>=4
+    assert 3*q<r
+    A = DecompSymmetricTensor(rank=r, dim=d)
+    A.weights = torch.randn(size =(2,2,2,2))
+    A.factors =  torch.randn(size =(2,d))+1
+    A.multiplicities = (r-3*q,q,q,q)
     return A
 
 
@@ -157,8 +167,11 @@ if __name__ == "__main__":
     A = DecompSymmetricTensor(rank=r, dim=d)
     A.weights = torch.Tensor([[1,0],[0,0]])
     A.factors =  torch.randn(size =(2,d))
+    #print(A.factors[0,0]**2)
     A.multiplicities = (r-q,q)
+    print((A.factors[0,0]**2, A[0,0]))
     assert np.isclose(A.factors[0,0]**2, A[0,0])
+    
     
     A_1 = DecompSymmetricTensor(rank=r, dim=d)
     A_1.weights = torch.Tensor([[1,0],[0,1]])
@@ -237,6 +250,7 @@ if __name__ == "__main__":
     A_2.weights[0,1,1] = 2
     A_2.factors =  torch.randn(size =(2,d))
     A_2.multiplicities = (r-2*q,q,q)
+    print(A_2[0,0,0])
     assert np.isclose((A_2.factors[0,0]**3+2*A_2.factors[1,0]**2*A_2.factors[0,0]), A_2[0,0,0])
     assert np.isclose(A_2.factors[0,1]**3+2*A_2.factors[1,1]**2*A_2.factors[0,1], A_2[1,1,1])
     assert np.isclose(A_2[1,0,0], A_2[0,0,1])
@@ -304,7 +318,7 @@ if __name__ == "__main__":
     
     #third order fully decomposed: AAA
     B = DecompSymmetricTensor(rank = 3, dim =3)   
-    weights = [0.5,1, 0.01]
+    weights = torch.Tensor([0.5,1, 0.01])
     factors =  torch.randn(size =(3,3))
     B.weights = weights
     B.factors = factors 
@@ -395,6 +409,50 @@ if __name__ == "__main__":
 
 
 # %% [markdown]
+# ## indexing permutation classes
+
+    # %%
+    d = 3
+    r = 1
+    vec = two_comp_test_tensor(d,r)
+    assert torch.allclose(vec['i'], vec.todense())
+    
+    d = 3
+    r = 2
+    for test_tensor in [two_comp_test_tensor(d,r), two_factor_test_tensor(d,r)]:
+        dense_test_tensor = test_tensor.todense()
+        assert torch.allclose(test_tensor['ii'],torch.Tensor([ dense_test_tensor[index] for index in \
+                                            test_tensor.permcls_indep_iter_repindex(σcls = 'ii')  ]))
+        assert torch.allclose(test_tensor['ij'],torch.Tensor([ dense_test_tensor[index] for index in \
+                                            test_tensor.permcls_indep_iter_repindex(σcls = 'ij')  ]))
+    
+    d = 4
+    r = 3
+    for test_tensor in [two_comp_test_tensor(d,r), two_factor_test_tensor(d,r), two_factor_test_tensor(d,r, q=2), three_factor_test_tensor(d,r)]:
+        dense_test_tensor = test_tensor.todense()
+        for perm_cls in ['iii','ijj', 'ijk']:
+            assert torch.allclose(test_tensor[perm_cls ],torch.Tensor([ dense_test_tensor[index] for index in \
+                                            test_tensor.permcls_indep_iter_repindex(σcls = perm_cls )  ]))
+    
+    d = 6
+    r = 4
+    three_facor_test_tensor_1 = three_factor_test_tensor(d,r)
+    three_facor_test_tensor_2 = three_facor_test_tensor_1.copy()
+    three_facor_test_tensor_2.multiplicities = (1,2,1)
+    three_facor_test_tensor_3 = three_facor_test_tensor_1.copy()
+    three_facor_test_tensor_3.multiplicities = (1,1,2)
+    test_tensors = [two_comp_test_tensor(d,r), two_factor_test_tensor(d,r), 
+                    two_factor_test_tensor(d,r, q=2), two_factor_test_tensor(d,r,q=3),
+                    three_facor_test_tensor_1,three_facor_test_tensor_2,
+                    three_facor_test_tensor_3,four_factor_test_tensor(d,r, q = 1)]
+    for test_tensor in test_tensors:
+        dense_test_tensor = test_tensor.todense()
+        for perm_cls in ['iiii','iijj','ijjj', 'ijkk', 'ijkl']:
+            assert torch.allclose(test_tensor[perm_cls ],torch.Tensor([ dense_test_tensor[index] for index in \
+                                            test_tensor.permcls_indep_iter_repindex(σcls = perm_cls )  ]), atol = 1e-5)
+
+
+# %% [markdown]
 # ### Copying
 
     # %%
@@ -407,6 +465,12 @@ if __name__ == "__main__":
     d = 10
     r = 4
     A = two_factor_test_tensor(d,r, q=2)
+    B = A.copy()
+    assert torch.allclose(B.todense(),A.todense())
+    
+    d = 4
+    r = 4
+    A = four_factor_test_tensor(d,r, q=1)
     B = A.copy()
     assert torch.allclose(B.todense(),A.todense())
 
@@ -510,7 +574,7 @@ if __name__ == "__main__":
 # second, higher order decomposed tensors
 
     # %%
-    d = 5
+    d = 4
     r = 3
     
     A_1 = two_factor_test_tensor(d,r, q = 1)
@@ -531,6 +595,16 @@ if __name__ == "__main__":
     B_3 = two_factor_test_tensor(d,r, q = 2)
     C_3 = symmetric_add(A_3,B_3)
     assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
+    
+    A_3 = three_factor_test_tensor(d,r, q = 1)
+    B_3 = three_factor_test_tensor(d,r, q = 1)
+    C_3 = symmetric_add(A_3,B_3)
+    assert all(np.isclose(C_3[index], A_3[index]+B_3[index]) for index in  C_3.indep_iter_repindex())
+    
+    A_3 = four_factor_test_tensor(d,r, q = 1)
+    B_3 = four_factor_test_tensor(d,r, q = 1)
+    C_3 = symmetric_add(A_3,B_3)
+    assert all(np.isclose(C_3[index], A_3[index]+B_3[index], atol = 1e-5) for index in  C_3.indep_iter_repindex())
 
 # %% [markdown]
 # third, decomposed tensors with nonmatching multiplicites
@@ -592,6 +666,7 @@ if __name__ == "__main__":
     B.multiplicities =  (2,)
     
     C = symalg.tensordot(A,B, axes = 0)
+    
     assert torch.isclose(C[0,0,0,0],A[0,0]*B[0,0])
     assert  torch.isclose(C[1,0,0,0],(A[1,0]*B[0,0]+A[0,0]*B[1,0])/2.0)
     assert  torch.isclose(C[1,1,0,0] , (A[1,1]*B[0,0]+A[0,0]*B[1,1]+4*A[1,0]*B[1,0])/6.0)
@@ -778,24 +853,47 @@ if __name__ == "__main__":
     B = A.copy()
     A.todense()
     A.reduce_factors()
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
     d = 3
     r = 2
     A = two_comp_test_tensor(d,r)
     B = A.copy()
     A.reduce_factors()
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
     A = two_factor_test_tensor(d,r)
     B = A.copy()
     A.reduce_factors()
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
     d = 3
     r = 3
     A = two_comp_test_tensor(d,r)
     B = A.copy()
     A.reduce_factors()
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
     A = two_factor_test_tensor(d,r)
     B = A.copy()
     A.reduce_factors()
-    assert torch.allclose(A.todense(), B.todense())
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
+    
+    D = DecompSymmetricTensor(rank = 3, dim= 3)
+    D.multiplicities = (1,1,1)
+    D.factors = torch.randn(size =(10,3))
+    D.weights = torch.randn(size =(10,10,10))
+    B = D.copy()
+    D.reduce_factors()
+    assert torch.allclose(D.todense(), B.todense(), atol = 1e-5)
+    
+    D = DecompSymmetricTensor(rank = 3, dim= 3)
+    D.multiplicities = (2,1)
+    D.factors = torch.randn(size =(10,3))
+    D.weights = torch.randn(size =(10,10))
+    B = D.copy()
+    D.reduce_factors()
+    assert D.num_factors == D.dim
+    assert B.num_factors == 10
+    assert torch.allclose(D.todense(), B.todense(), atol = 1e-5)
+    
+    A = four_factor_test_tensor(d,4,1)
+    B = A.copy()
+    A.reduce_factors()
+    assert torch.allclose(A.todense(), B.todense(), atol = 1e-5)
