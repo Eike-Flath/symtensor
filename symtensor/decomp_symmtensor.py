@@ -31,10 +31,10 @@
 #
 # We perform the symmetrization only when we retrieve specific entries of the tensor. 
 #
-# As there are $(k+1)!$ ways of arranging the $k+l$ other products, but permutations of the $k$ identical vectors $u^m$ or the $l$ identical vectors $v^n$ do not yield new terms. 
+# As there are $(k+l)!$ ways of arranging the $k+l$ outer products, but permutations of the $k$ identical vectors $u^m$ or the $l$ identical vectors $v^n$ do not yield new terms. 
 # This representation is especially useful for many operations, for example the contraction with a matrix along all indices. 
 #
-# We call $\lambda^m$ the weights and $t^m$ the vectors (strictly speaking, these could be again symmetric tensors) and $k,l$ in the example above the multiplicities.
+# We call $\lambda^m$ the *weights* and $t^m$ the *factors* (strictly speaking, these could be again symmetric tensors) and $k,l$ in the example above the multiplicities.
 
 # %% [markdown]
 # ## Capabilities
@@ -49,16 +49,41 @@
 #  - addition of tensors
 #  - multiplication of tensors 
 #  - outer product
-#  - tensordot, but axes >1 does not work for `num_indep_factors > 1`.
+#  - tensordot, but `axes > 1` does not work for `num_indep_factors > 1`.
 #  
-#  ## Known bugs: 
+# ## Known bugs: 
 #  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (?)
+#  - [ ] Storage format doesn't use `_data`.
+#  - [ ] Inherits from `PermClsSymmetricTensor` instead of `SymmetricTensor`
+#  - [ ] `repr(A)` doesn't work (partly because `_data` is not used)
+#  - [ ] Symmetrized ops use non-symmetrized NumPy versions (`np.tensordot` instead of `symalg.tensordot`)
+#  - [ ] `multinomial` is an extremely poor name to indicate a contraction.
 #  
-#  ## Open To-dos
+# ## Open To-dos
 #  - [ ] tensordot, with axes >1 working for `num_indep_factors > 1`.
 #  - [ ] splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-d,d,...)
 #  - [ ] all of the above for `num_indep_factors > 4`.
 #  - [ ] tensor.weights typically has many zeros, exploit this?
+#  - [ ] symmetrized operations use inefficient patterns:
+#    + `torch.prod(torch.tensor([...]))`
+#    + underuse of vectorized operations. Compare the `contract_all_indices_with_vector()` with the following:
+#      ```python
+#      def contract_all_indices_with_vector(self, x):
+#          return (self.weights * self.factors.dot(x)**self.multiplicities).sum()
+#      ```
+#  - [ ] Check if there is duplication of functionality already in `symtensor.utils`
+#  - [ ] `__getitem__` should not use hard-coded keys, and work for any rank.
+#  
+# ## Storage format
+#
+# - `multiplicities`: are stored as a tuple of integers.  
+#   Within one tensor, all terms have the same number of multiplicities.  
+#   (**AR**: I find this restriction super unintuitive.)
+# - `factors`: Always a 2D array; first index corresponds to $λ$. I.e., given
+#   \begin{equation}
+#   T_{ij} = \sum_m λ^m u^m_i \odot u^m_j
+#   \end{equation}
+#   the $u$ elements are indexed as $u[m,i]$ and $u[m,j]$.
 
 # %% tags=["remove-input"]
 from __future__ import annotations
@@ -243,14 +268,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     
     @property
     def multiplicities(self):
-        """Number of repeats of factors 
-        in outer product"""
+        """Number of repeats of factors in outer product"""
         return self._multiplicities
 
     @multiplicities.setter
     def multiplicities(self, value):
-        """Number of repeats of factors 
-        in outer product"""
+        """Number of repeats of factors in outer product"""
         self._multiplicities = value
     
     @property
@@ -276,7 +299,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     @property
     def num_indep_factors(self): 
         """
-        Quantifies how many different vectors appear in the outer products.
+        Quantifies how many different factors appear in the outer products.
         For example, both cases below have `num_indep_factors` = 2:
         
         .. math::
@@ -460,7 +483,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
                     self.permcls_indep_iter_repindex(σcls = key) ]
 
         elif isinstance(key, tuple):
-            assert len(key) == self.rank, "number of indices must much rank"
+            assert len(key) == self.rank, "number of indices must match rank"
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
                 raise NotImplementedError
             if self._factors is None: 
@@ -621,6 +644,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
 
 # %% [markdown]
 # $\mathtt{out}$
+
+# %% [markdown]
+# **AR:** Are these test functions still used ?
 
 # %%
 def two_comp_test_tensor(d,r):
@@ -1027,7 +1053,7 @@ def symmetric_multiply_outer(self,other):
 
 # %%
 @DecompSymmetricTensor.implements(np.tensordot)
-def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int = 2) -> Union[DecompSymmetricTensor, float]: 
+def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int=2) -> Union[DecompSymmetricTensor, float]: 
     #check if compatible
     if axes == 0: 
         return np.outer(self,other)
