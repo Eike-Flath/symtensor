@@ -51,19 +51,17 @@
 #  - outer product
 #  - tensordot, but `axes > 1` does not work for `num_indep_factors > 1`.
 #  
-# ## Known bugs: 
-#  - [ ] Addition of some partially decomposed tensors doesn't work, potentially too many splits (?)
-#  - [ ] Storage format doesn't use `_data`.
-#  - [ ] Inherits from `PermClsSymmetricTensor` instead of `SymmetricTensor`
-#  - [ ] `repr(A)` doesn't work (partly because `_data` is not used)
-#  - [ ] Symmetrized ops use non-symmetrized NumPy versions (`np.tensordot` instead of `symalg.tensordot`)
-#  - [ ] `multinomial` is an extremely poor name to indicate a contraction.
+#  ## Known bugs: 
+#  - [x] Addition of some partially decomposed tensors doesn't work, potentially too many splits (fixed now.)
 #  
-# ## Open To-dos
+#  ## Open To-dos
+#  - [ ] make data format match 
+#  - [ ] change symmetric_add and symmetric_multiply to symalg.add and symalg.multiply
+#  - [ ] reduce factors of rank >2 tensors
 #  - [ ] tensordot, with axes >1 working for `num_indep_factors > 1`.
 #  - [ ] splitting off more independent factors with corresponding weights as so: `(a,b,c,...) -> (a,b,c-d,d,...)
 #  - [ ] all of the above for `num_indep_factors > 4`.
-#  - [ ] tensor.weights typically has many zeros, exploit this?
+#  - [ ] tensor.weights typically has many zeros, exploit this? (with tensorly? TensorTrains?)
 #  - [ ] symmetrized operations use inefficient patterns:
 #    + `torch.prod(torch.tensor([...]))`
 #    + underuse of vectorized operations. Compare the `contract_all_indices_with_vector()` with the following:
@@ -73,17 +71,6 @@
 #      ```
 #  - [ ] Check if there is duplication of functionality already in `symtensor.utils`
 #  - [ ] `__getitem__` should not use hard-coded keys, and work for any rank.
-#  
-# ## Storage format
-#
-# - `multiplicities`: are stored as a tuple of integers.  
-#   Within one tensor, all terms have the same number of multiplicities.  
-#   (**AR**: I find this restriction super unintuitive.)
-# - `factors`: Always a 2D array; first index corresponds to $λ$. I.e., given
-#   \begin{equation}
-#   T_{ij} = \sum_m λ^m u^m_i \odot u^m_j
-#   \end{equation}
-#   the $u$ elements are indexed as $u[m,i]$ and $u[m,j]$.
 
 # %% tags=["remove-input"]
 from __future__ import annotations
@@ -108,6 +95,8 @@ from scityping.torch import TorchTensor
 # %% tags=["active-ipynb", "remove-input"]
 # from symtensor.torch_symtensor import TorchSymmetricTensor
 # from symtensor.permcls_symtensor import PermClsSymmetricTensor
+# from symtensor.decomp_utils import eigendecompostition_without_zero_eigs
+# import symtensor.symalg as symalg
 # import symtensor.utils as utils 
 
 # %% [markdown] tags=["remove-cell"]
@@ -117,6 +106,8 @@ from scityping.torch import TorchTensor
 from .torch_symtensor import TorchSymmetricTensor
 from .permcls_symtensor import PermClsSymmetricTensor
 from . import utils
+from . import symalg
+from .decomp_utils import eigendecompostition_without_zero_eigs
 
 
 # %%
@@ -134,7 +125,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     _data : Dict[Tuple[int], Union[float, Array[float,1]]]
     
     def __init__(self, rank: Optional[int]=None, dim: Optional[int]=None,
-                 data: Union[Array, Number]=np.float64(0),
+                 data: Union[Array, Number] = np.float64(0),
                  dtype: Union[str,DType]=None,
                  device: Union[str, 'torch.device']="cpu"):
         """
@@ -255,6 +246,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def weights(self, value):
         """Weight of each component"""
         self._weights = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["weights"] = self._weights
         
     @property
     def factors(self):
@@ -265,6 +259,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def factors(self, value):
         """Factors in outer product"""
         self._factors = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["factors"] = self._factors
     
     @property
     def multiplicities(self):
@@ -275,6 +272,9 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
     def multiplicities(self, value):
         """Number of repeats of factors in outer product"""
         self._multiplicities = value
+        #if not isinstance(self._data, dict): 
+        #    self._data = {}
+        #self._data["multiplicities"] = self._multiplicities
     
     @property
     def num_arrangements(self): 
@@ -325,8 +325,8 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         Create equivalent tensor with different multiplicities,
         where the `pos`th multiplicity is split off. 
         
-        Inputs: 
-        =======
+        Parameters
+        ----------
         pos: int
             which multiplicity to split
         
@@ -454,9 +454,7 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             #need only rearange mulitplicities
             assert other.num_indep_factors == self.num_indep_factors
             return tuple(sorted(self.multiplicities, reverse = True))
-                
-                
-    
+                         
     def copy(self):
         """Copy"""
         other = DecompSymmetricTensor(rank = self.rank, dim=self.dim)
@@ -479,8 +477,238 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         .. Note:: slices are not yet supported.
         """
         if isinstance(key, str):
-            return [ self.__getitem__(index) for index in \
-                    self.permcls_indep_iter_repindex(σcls = key) ]
+            if self.rank == 1 and key =="i": 
+                return self.todense()
+            elif self.rank == 2: 
+                dense_tensor = self.todense()
+                return torch.Tensor([ dense_tensor[index] for index in \
+                    self.permcls_indep_iter_repindex(σcls = key) ])
+            elif self.rank ==3:
+                if key =='iii': 
+                    if self.num_indep_factors ==1: 
+                        return torch.einsum('j, ji->i', self.weights, self.factors**3)
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[0] ==2:
+                            return torch.einsum('jk, ji, ki->i', self.weights, self.factors**2, self.factors)
+                        elif self.multiplicities[1] == 2:
+                            return torch.einsum('jk, ji, ki->i', self.weights, self.factors, self.factors**2)
+                    elif self.num_indep_factors ==3: 
+                        return torch.einsum('jkl, ji, ki, li->i', self.weights, self.factors, self.factors, self.factors)
+                elif key =="ijj": 
+                    if self.num_indep_factors ==1: 
+                        matr = torch.einsum('k, ki, kj ->ij', self.weights, self.factors**2, self.factors)
+                        return torch.Tensor([ matr[index[1:]] for index in \
+                                            self.permcls_indep_iter_repindex(σcls = 'ijj') ])
+                    if self.num_indep_factors ==2: 
+                        if self.multiplicities[1] ==2: 
+                            matr = ( torch.einsum('lk, ki, lj ->ij', self.weights, self.factors**2, self.factors) +
+                                    2*torch.einsum('lk, ki, li, kj ->ij', self.weights, self.factors, self.factors, self.factors))/3.0
+                        elif self.multiplicities[0] == 2: 
+                            matr = ( torch.einsum('kl, ki, lj ->ij', self.weights, self.factors**2, self.factors) +
+                                    2*torch.einsum('kl, ki, li, kj ->ij', self.weights, self.factors, self.factors, self.factors))/3.0
+                        return torch.Tensor([ matr[index[1:]] for index in \
+                                            self.permcls_indep_iter_repindex(σcls = 'ijj') ])
+                    if self.num_indep_factors ==3: 
+                        matr = ( torch.einsum('klm, ki, lj, mj ->ji', self.weights, self.factors, self.factors, self.factors) + \
+                                torch.einsum('klm, kj, li, mj ->ji', self.weights, self.factors, self.factors, self.factors)+ \
+                                torch.einsum('klm, kj, lj, mi ->ji', self.weights, self.factors, self.factors, self.factors))/3.0
+                        return torch.Tensor([ matr[index[1:]] for index in \
+                                            self.permcls_indep_iter_repindex(σcls = 'ijj') ])
+                if key=='ijk': 
+                    if self.num_indep_factors == 1: 
+                        return torch.Tensor([torch.dot(self.weights, torch.prod(self.factors[:,index], 1)) for index in self.permcls_indep_iter_repindex(σcls = key)])
+                        #return torch.Tensor([torch.prod(torch.einsum('i,ij -> j',self.weights, self.factors[:,index]), dim=0) for index in self.permcls_indep_iter_repindex(σcls = key)])
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[0] == 2:
+                            return torch.Tensor([(torch.prod(torch.einsum('ij,i, j -> ', self.weights, self.factors[:,index[0]]*self.factors[:,index[1]], self.factors[:,index[2]]))
+                                    +torch.prod(torch.einsum('ij,i, j -> ', self.weights, self.factors[:,index[2]]*self.factors[:,index[1]], self.factors[:,index[0]]))
+                                    +torch.prod(torch.einsum('ij,i, j -> ', self.weights, self.factors[:,index[0]]*self.factors[:,index[2]], self.factors[:,index[1]])))/3.0
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                        elif self.multiplicities[1] == 2:
+                            return torch.Tensor([(torch.prod(torch.einsum('ji,i, j ->', self.weights, self.factors[:,index[0]]*self.factors[:,index[1]], self.factors[:,index[2]]))
+                                    +torch.prod(torch.einsum('ji,i, j ->', self.weights, self.factors[:,index[2]]*self.factors[:,index[1]], self.factors[:,index[0]]))
+                                    +torch.prod(torch.einsum('ji,i, j ->', self.weights, self.factors[:,index[0]]*self.factors[:,index[2]], self.factors[:,index[1]])))/3.0
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                    elif self.num_indep_factors ==3:
+                        sym_weights =  utils.symmetrize(self.weights)
+                        return torch.Tensor([torch.einsum('jik,j,i,k -> ',sym_weights, self.factors[:,index[0]], self.factors[:,index[1]], self.factors[:,index[2]],)
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                else: 
+                    return torch.Tensor([ self.__getitem__(index) for index in \
+                        self.permcls_indep_iter_repindex(σcls = key) ])
+            elif self.rank == 4: 
+                if key == 'iiii': 
+                    if self.num_indep_factors ==1: 
+                        return torch.einsum('j, ji->i', self.weights, self.factors**4)
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[0] == 2:
+                            return torch.einsum('jk, ji, ki->i', self.weights, self.factors**2, self.factors**2)
+                        elif self.multiplicities[0] == 3:
+                            return torch.einsum('jk, ji, ki->i', self.weights, self.factors**3, self.factors)
+                        elif self.multiplicities[0] == 1:
+                            return torch.einsum('jk, ji, ki->i', self.weights, self.factors, self.factors**3)
+                    elif self.num_indep_factors ==3: 
+                        if self.multiplicities[0] == 2: 
+                            return torch.einsum('jkl, ji, ki, li->i', self.weights, self.factors**2, self.factors, self.factors)
+                        elif self.multiplicities[1] == 2: 
+                            return torch.einsum('jkl, ji, ki, li->i', self.weights, self.factors, self.factors**2, self.factors)
+                        elif self.multiplicities[2] == 2: 
+                            return torch.einsum('jkl, ji, ki, li->i', self.weights, self.factors, self.factors, self.factors**2)
+                    elif self.num_indep_factors == 4: 
+                        return torch.einsum('jklm, ji, ki, li, mi->i', self.weights, self.factors, self.factors, self.factors, self.factors)
+                elif key == 'ijjj': 
+                    if self.num_indep_factors ==1: 
+                        matr = torch.einsum('k, ki, kj ->ij', self.weights, self.factors**3, self.factors)
+                        return torch.Tensor([ matr[index[2:]] for index in \
+                                             self.permcls_indep_iter_repindex(σcls = 'ijjj')  ])
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[1] == 3: 
+                            matr = ( torch.einsum('lk, ki, lj ->ij', self.weights, self.factors**3, self.factors) +
+                                    3*torch.einsum('lk, li, ki, kj ->ij', self.weights, self.factors, self.factors**2, self.factors))/4.0
+                        elif self.multiplicities[0] == 3: 
+                            matr = ( torch.einsum('kl, ki, lj ->ij', self.weights, self.factors**3, self.factors) +
+                                    3*torch.einsum('kl, li, ki, kj ->ij', self.weights, self.factors, self.factors**2, self.factors))/4.0
+                        elif self.multiplicities[1] == 2: 
+                            matr = torch.einsum('kl, ki,kj, li ->ij', (self.weights+self.weights.T)/2.0, self.factors,self.factors, self.factors**2) 
+                        return torch.Tensor([ matr[index[2:]] for index in \
+                                             self.permcls_indep_iter_repindex(σcls = 'ijjj')  ])
+                    elif self.num_indep_factors ==3: 
+                        if self.multiplicities[0] ==2:
+                            matr = ( 2*torch.einsum('klm, kj, ki, li, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors) + \
+                                    torch.einsum('klm, ki, li, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)+ \
+                                    torch.einsum('klm, ki, lj, mi ->ij', self.weights, self.factors**2, self.factors, self.factors))/4.0
+                        elif self.multiplicities[1] ==2:
+                            matr = ( 2*torch.einsum('lkm, kj, ki, li, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors) + \
+                                    torch.einsum('lkm, ki, li, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)+ \
+                                    torch.einsum('lkm, ki, lj, mi ->ij', self.weights, self.factors**2, self.factors, self.factors))/4.0
+                        elif self.multiplicities[2] ==2:
+                            matr = ( 2*torch.einsum('lmk, kj, ki, li, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors) + \
+                                    torch.einsum('lmk, ki, li, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)+ \
+                                    torch.einsum('lmk, ki, lj, mi ->ij', self.weights, self.factors**2, self.factors, self.factors))/4.0
+                        return torch.Tensor([ matr[index[2:]] for index in \
+                                            self.permcls_indep_iter_repindex(σcls = 'ijjj')  ])
+                    elif self.num_indep_factors ==4: 
+                        sym_weights = utils.symmetrize(self.weights)
+                        matr = torch.einsum('klmo, ki, li, mi, oj ->ij', sym_weights, self.factors, self.factors, self.factors, self.factors)
+                        return torch.Tensor([ matr[index[2:]] for index in \
+                                            self.permcls_indep_iter_repindex(σcls = 'ijjj')  ]) 
+                        
+                elif key == 'iijj': 
+                    pcs = PermClsSymmetricTensor( rank = 2, dim = self.dim)
+                    if self.num_indep_factors ==1: 
+                        matr = torch.einsum('k, ki, kj ->ij', self.weights, self.factors**2, self.factors**2)
+                        return torch.Tensor([ matr[index] for index in \
+                                             pcs.permcls_indep_iter_repindex(σcls = 'ij')  ])
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[1] == 3: 
+                            m_1 = torch.einsum('kl, ki, li, lj ->ij', self.weights, self.factors, self.factors, self.factors**2) 
+                            m_2 = torch.einsum('kl, kj, li, lj ->ij', self.weights, self.factors, self.factors**2, self.factors)
+                            matr = ( m_1+m_1.T + m_2 + m_2.T)/4.0
+                        elif self.multiplicities[0] == 3: 
+                            m_1 = torch.einsum('kl, ki, kj, lj ->ij', self.weights, self.factors**2, self.factors, self.factors)
+                            m_2 = torch.einsum('kl, ki, kj, li ->ij', self.weights, self.factors, self.factors**2, self.factors)
+                            matr = ( m_1+m_1.T + m_2 + m_2.T)/4.0
+                        elif self.multiplicities[1] == 2: 
+                            m_1 = torch.einsum('kl, ki, lj ->ij', self.weights, self.factors**2, self.factors**2)
+                            m_2 = 2*torch.einsum('kl, kj, ki, li, lj ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)
+                            matr = ( m_1+m_1.T + m_2 + m_2.T)/6.0
+                        return torch.Tensor([ matr[index] for index in \
+                                             pcs.permcls_indep_iter_repindex(σcls = 'ij')  ])
+                    
+                    elif self.num_indep_factors ==3: 
+                        if self.multiplicities[0] ==2:
+                            m_1 = torch.einsum('klm, ki, lj, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)
+                            matr = ( 2*torch.einsum('klm, ki, kj, li, mj ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)  
+                                    +2*torch.einsum('klm, ki, kj, lj, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)
+                                    +m_1 + m_1.T)/6.0
+                        elif self.multiplicities[1] ==2:
+                            m_1 = torch.einsum('lkm, ki, lj, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)
+                            matr = ( 2*torch.einsum('lkm, ki, kj, li, mj ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)  
+                                    +2*torch.einsum('lkm, ki, kj, lj, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)
+                                    +m_1 + m_1.T)/6.0
+                        elif self.multiplicities[2] ==2:
+                            m_1 = torch.einsum('lmk, ki, lj, mj ->ij', self.weights, self.factors**2, self.factors, self.factors)
+                            matr = ( 2*torch.einsum('lmk, ki, kj, li, mj ->ij', self.weights, self.factors, self.factors, self.factors, self.factors) 
+                                    +2*torch.einsum('lmk, ki, kj, lj, mi ->ij', self.weights, self.factors, self.factors, self.factors, self.factors)
+                                    +m_1 + m_1.T)/6.0
+                        return torch.Tensor([ matr[index] for index in \
+                                            pcs.permcls_indep_iter_repindex(σcls = 'ij')  ])
+                    elif self.num_indep_factors ==4: 
+                        sym_weights = utils.symmetrize(self.weights)
+                        matr = torch.einsum('klmo, ki, li, mj, oj ->ij', sym_weights, self.factors, self.factors, self.factors, self.factors)
+                        return torch.Tensor([ matr[index] for index in \
+                                            pcs.permcls_indep_iter_repindex(σcls = 'ij')  ]) 
+                elif key=='ijkk'or key =="ijkl": 
+                    if self.num_indep_factors == 1: 
+                        return torch.Tensor([torch.dot(self.weights, torch.prod(self.factors[:,index], 1)) for index in self.permcls_indep_iter_repindex(σcls = key)])
+                    elif self.num_indep_factors ==2: 
+                        if self.multiplicities[0] == 2:
+                            return torch.Tensor([(torch.einsum('ij,i, j -> ', 
+                                                               self.weights+ self.weights.T, self.factors[:,index[0]]*self.factors[:,index[1]],
+                                                               self.factors[:,index[2]]*self.factors[:,index[3]]) 
+                                                  + torch.einsum('ij,i, j -> ', 
+                                                               self.weights+ self.weights.T, self.factors[:,index[0]]*self.factors[:,index[2]],
+                                                               self.factors[:,index[1]]*self.factors[:,index[3]]) 
+                                                  + torch.einsum('ij,i, j -> ', 
+                                                               self.weights+ self.weights.T, self.factors[:,index[0]]*self.factors[:,index[3]],
+                                                               self.factors[:,index[1]]*self.factors[:,index[2]]))/6.0 \
+                                                 for index in self.permcls_indep_iter_repindex(σcls = key)])
+                        elif self.multiplicities[1] == 3:
+                            return torch.Tensor([(torch.einsum('ji,i, j -> ', self.weights, 
+                                                               torch.prod(self.factors[:,(index[0], index[1], index[2])],1), self.factors[:,index[3]])
+                                    +torch.einsum('ji,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[0], index[1], index[3])],1), self.factors[:,index[2]])
+                                    +torch.einsum('ji,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[0], index[3], index[2])],1), self.factors[:,index[1]])
+                                    +torch.einsum('ji,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[3], index[1], index[2])],1), self.factors[:,index[0]]))/4.0 \
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                        elif self.multiplicities[0] == 3:
+                            return torch.Tensor([(torch.einsum('ij,i, j -> ', self.weights, 
+                                                               torch.prod(self.factors[:,(index[0], index[1], index[2])],1), self.factors[:,index[3]])
+                                    +torch.einsum('ij,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[0], index[1], index[3])],1), self.factors[:,index[2]])
+                                    +torch.einsum('ij,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[0], index[3], index[2])],1), self.factors[:,index[1]])
+                                    +torch.einsum('ij,i, j -> ', self.weights, 
+                                                  torch.prod(self.factors[:,(index[3], index[1], index[2])],1), self.factors[:,index[0]]))/4.0 \
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                    elif self.num_indep_factors == 3:
+                        if self.multiplicities[0] ==2: 
+                            #weights_ijk + weights_ikj
+                            sym_weights = self.weights + torch.permute(self.weights, (0,2,1))
+                        elif self.multiplicities[1] ==2: 
+                            #weights_jik + weights_kij = sym_weights_ijk
+                            sym_weights = torch.permute(self.weights, (1,0,2)) + torch.permute(self.weights, (1,2,0))
+                        elif self.multiplicities[2] ==2: 
+                            #weights_jki + weights_kji = sym_weights_ijk
+                            sym_weights = torch.permute(self.weights, (2,0,1)) + torch.permute(self.weights, (2,1,0))
+                            #sym_weights = torch.einsum('jki, kji -> ikj',self.weights, self.weights)
+                        return torch.Tensor([ 
+                                     (torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[0], index[3])],1),
+                                                   self.factors[:,index[1]], self.factors[:,index[2]],)
+                                    +torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[0], index[1])],1),
+                                                  self.factors[:,index[3]], self.factors[:,index[2]])
+                                    +torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[0], index[2])],1),
+                                                  self.factors[:,index[3]], self.factors[:,index[1]])
+                                    +torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[1], index[2])],1),
+                                                  self.factors[:,index[0]], self.factors[:,index[3]])
+                                    +torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[1], index[3])],1),
+                                                  self.factors[:,index[0]], self.factors[:,index[2]])
+                                    +torch.einsum('ijk, i, j, k -> ',sym_weights, torch.prod(self.factors[:,(index[2], index[3])],1),
+                                                  self.factors[:,index[1]], self.factors[:,index[0]]))/12.0 \
+                                    for index in self.permcls_indep_iter_repindex(σcls = key)])
+                    elif self.num_indep_factors ==4: 
+                        sym_weights = utils.symmetrize(self.weights)
+                        return torch.Tensor([ torch.einsum('klmo, k, l, m, o ->', sym_weights, self.factors[:,index[0]], self.factors[:,index[1]], self.factors[:,index[2]], self.factors[:,index[3]])
+                                            for index in \
+                                            self.permcls_indep_iter_repindex(σcls = key)  ]) 
+                else:
+                    return torch.Tensor([ self.__getitem__(index) for index in \
+                        self.permcls_indep_iter_repindex(σcls = key) ])
+            else:
+                return torch.Tensor([ self.__getitem__(index) for index in \
+                    self.permcls_indep_iter_repindex(σcls = key) ])
 
         elif isinstance(key, tuple):
             assert len(key) == self.rank, "number of indices must match rank"
@@ -491,33 +719,65 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             elif len(self._multiplicities) == 1: 
                 # do symmetrization step
                 #todo: test this against numpy.prod()
-                return sum( self._weights[i]*torch.prod(torch.tensor([self._factors[i,j] for j in key]))
-                            for i in range(self.num_factors)) 
+                vec_ = torch.prod(self._factors[:,key], dim =1)
+                return torch.dot(self._weights, vec_)
             elif len(self._multiplicities) == 2:
                 # do symmetrization step
-                return sum( self._weights[i,j] \
-                           *sum(torch.prod(torch.tensor([self._factors[i,j_1] for j_1 in index_1]))\
-                                *torch.prod(torch.tensor([self._factors[j,j_2] for j_2 in index_2]))\
-                                for index_1, index_2 in \
-                                utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
-                                                        self._multiplicities[1], num_partitions = False))
-                            for i,j in itertools.product(range(self.num_factors),repeat =2))/self.num_arrangements
+                if self.rank ==2: 
+                    matrix_ = sum((torch.tensordot(self._factors[:,index_1[0]],self._factors[:,index_2[0]], dims =0) \
+                                for index_1, index_2 in utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
+                                                        self._multiplicities[1], num_partitions = False) ),start = torch.zeros_like(self._weights) )
+                elif self.rank >2: 
+                    if self.multiplicities[0]==1: 
+                        matrix_ = sum((torch.tensordot(self._factors[:,index_1[0]], torch.prod(self._factors[:,index_2], dim= 1), dims =0) \
+                                       for index_1, index_2 in utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
+                                                                                                          self._multiplicities[1], num_partitions = False) ),
+                                      start = torch.zeros_like(self._weights) )
+                    elif self.multiplicities[1]==1:
+                        matrix_ = sum((torch.tensordot(torch.prod(self._factors[:,index_1], dim=1), self._factors[:,index_2[0]], dims =0) \
+                                           for index_1, index_2 in utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
+                                                                                                            self._multiplicities[1], num_partitions = False) ),
+                                      start = torch.zeros_like(self._weights) )
+                    else: 
+                        matrix_ = sum((torch.tensordot(torch.prod(self._factors[:,index_1], dim=1), torch.prod(self._factors[:,index_2], dim=1), dims=0) \
+                                         for index_1, index_2 in utils.twoway_partitions_pairwise_iterator(key, self._multiplicities[0],
+                                                                                                           self._multiplicities[1], num_partitions = False) ),
+                                      start = torch.zeros_like(self._weights) )
+                return torch.sum(torch.mul( self._weights,matrix_))/self.num_arrangements
+            
             elif len(self._multiplicities) == 3:
                 # do symmetrization step
-                return sum( self._weights[i,j,k] \
-                           *sum(torch.prod(torch.tensor([self._factors[i,j_1] for j_1 in index_1]))\
-                                *torch.prod(torch.tensor([self._factors[j,j_2] for j_2 in index_2]))\
-                                *torch.prod(torch.tensor([self._factors[k,j_3] for j_3 in index_3]))\
-                                for index_1, index_2, index_3 in \
-                                utils.nway_partitions_iterator(key, self._multiplicities, num_partitions = False))
-                            for i,j,k in itertools.product(range(self.num_factors),repeat =3))/self.num_arrangements
+                if self.rank ==3: 
+                    third_order_ = sum((torch.tensordot(torch.outer( self._factors[:,index_1[0]],
+                                                                 self._factors[:,index_2[0]]),
+                                                    self._factors[:,index_3[0]], dims = 0)
+                                        for index_1, index_2, index_3 in utils.nway_partitions_iterator(key, self._multiplicities, 
+                                                                                                        num_partitions = False)), 
+                                      start = torch.zeros_like(self._weights))
+                    return torch.sum(torch.mul( self._weights,third_order_))/self.num_arrangements
+                elif self.rank ==4 and self.multiplicities[0] > 1: 
+                    third_order_ = sum((torch.tensordot(torch.outer(torch.prod(self._factors[:,index_1], dim =1),
+                                                                     self._factors[:,index_2[0]]),
+                                                        self._factors[:,index_3[0]], dims = 0)
+                                        for index_1, index_2, index_3 in utils.nway_partitions_iterator(key, self._multiplicities, 
+                                                                                                        num_partitions = False)), 
+                                        start = torch.zeros_like(self._weights))
+                    return torch.sum(torch.mul( self._weights,third_order_))/self.num_arrangements
+                else: 
+                    return sum( self._weights[i,j,k] \
+                               *sum(torch.prod(torch.tensor([self._factors[i,j_1] for j_1 in index_1]))\
+                                    *torch.prod(torch.tensor([self._factors[j,j_2] for j_2 in index_2]))\
+                                    *torch.prod(torch.tensor([self._factors[k,j_3] for j_3 in index_3]))\
+                                    for index_1, index_2, index_3 in \
+                                    utils.nway_partitions_iterator(key, self._multiplicities, num_partitions = False))
+                                for i,j,k in itertools.product(range(self.num_factors),repeat =3))/self.num_arrangements
             elif len(self._multiplicities) == 4:
                 # do symmetrization step
                 return sum( self._weights[i,j,k,l] \
                            *sum(torch.prod(torch.tensor([self._factors[i,j_1] for j_1 in index_1]))\
                                 *torch.prod(torch.tensor([self._factors[j,j_2] for j_2 in index_2]))\
                                 *torch.prod(torch.tensor([self._factors[k,j_3] for j_3 in index_3]))\
-                                *torch.prod(torch.tensor([self._factors[l,j_3] for j_4 in index_4]))\
+                                *torch.prod(torch.tensor([self._factors[l,j_4] for j_4 in index_4]))\
                                 for index_1, index_2, index_3, index_4 in \
                                 utils.nway_partitions_iterator(key, self._multiplicities, num_partitions = False))
                             for i,j,k,l in itertools.product(range(self.num_factors),repeat =4))/self.num_arrangements
@@ -561,86 +821,151 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
             if self.rank == 1: 
                 return sum(self.weights[i]*self.factors[i,:] for i in range(self.num_factors))
             else: 
-                for i in range(self.num_factors): 
-                    outer_prod = self.factors[i,:]
-                    for j in range(self.rank-1):
-                        outer_prod = torch.tensordot(outer_prod,self.factors[i,:], dims =0)
-                    dense_tensor += self.weights[i]* outer_prod
-            return dense_tensor
+                if self.rank == 2:
+                    return torch.einsum('a, ai, aj -> ij', self.weights, self.factors, self.factors)
+                elif self.rank == 3:
+                    return torch.einsum('a, ai, aj, ak -> ijk', self.weights, self.factors, self.factors, self.factors)
+                elif self.rank == 4:
+                    return torch.einsum('a, ai, aj, ak, al -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors)
+                else:
+                    for i in range(self.num_factors): 
+                        outer_prod = self.factors[i,:]
+                        for j in range(self.rank-1):
+                            outer_prod = torch.tensordot(outer_prod,self.factors[i,:], dims =0)
+                        dense_tensor += self.weights[i]* outer_prod
+                    return dense_tensor
         elif self.num_indep_factors == 2:
-            for i,j in itertools.product(range(self.num_factors),repeat =2):
-                #symmetrize outer products:
-                #loop over arrangements of factors in outer product
-                for pos_1, pos_2 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
-                    indices = np.array([i,]*self.rank)
-                    #put jth component in pos_2th position etc.
-                    indices[pos_2] = j
-                    outer_prod = self.factors[indices[0],:]
-                    for m in range(self.rank-1):
-                        outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
-                    dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
-            return dense_tensor
+            if self.rank == 2: 
+                dense_tensor_unsym = torch.einsum('ab, ai, bj -> ij', self.weights, self.factors, self.factors)
+                dense_tensor = 0.5*(dense_tensor_unsym+ dense_tensor_unsym.T)
+                return dense_tensor
+            elif self.rank == 3 and self.multiplicities == (2,1):
+                return utils.symmetrize(torch.einsum('ab, ai, aj, bk -> ijk', self.weights, self.factors, self.factors, self.factors))
+            elif self.rank == 3 and self.multiplicities == (1,2):
+                return utils.symmetrize(torch.einsum('ab, ai, aj, bk -> ijk', self.weights.T, self.factors, self.factors, self.factors))
+            elif self.rank == 4 and self.multiplicities ==(2,2):
+                return utils.symmetrize(torch.einsum('ab, ai, bj, bk, al -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors))
+            elif self.rank == 4 and self.multiplicities ==(3,1):
+                return utils.symmetrize(torch.einsum('ab, ai, aj, ak, bl -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors))
+            elif self.rank == 4 and self.multiplicities ==(1,3):
+                return utils.symmetrize(torch.einsum('ab, ai, aj, ak, bl  -> ijkl', self.weights.T, self.factors, self.factors, self.factors, self.factors))    
+            else:
+                for i,j in itertools.product(range(self.num_factors),repeat =2):
+                    #symmetrize outer products:
+                    #loop over arrangements of factors in outer product
+                    for pos_1, pos_2 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                        indices = np.array([i,]*self.rank)
+                        #put jth component in pos_2th position etc.
+                        indices[pos_2] = j
+                        outer_prod = self.factors[indices[0],:]
+                        for m in range(self.rank-1):
+                            outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
+                        dense_tensor += self.weights[i,j]*outer_prod/self.num_arrangements
+                return dense_tensor
         elif self.num_indep_factors == 3:
-            for i,j,k in itertools.product(range(self.num_factors),repeat =3):
-                #symmetrize outer products:
-                #loop over arrangements of factors in outer product
-                for pos_1, pos_2, pos_3 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
-                    indices = np.array([i,]*self.rank)
-                    #put jth component in pos_2th position etc.
-                    indices[pos_2] = j
-                    indices[pos_3] = k
-                    outer_prod = self.factors[indices[0],:]
-                    for m in range(1,self.rank):
-                        outer_prod = torch.tensordot(outer_prod,self.factors[indices[m],:], dims =0)
-                    dense_tensor += self.weights[i,j,k]*outer_prod/self.num_arrangements
-            return dense_tensor
+            if self.rank == 3: 
+                return utils.symmetrize(torch.einsum('abc, ai, bj, ck -> ijk', 
+                                                     self.weights, self.factors, self.factors, self.factors))
+            elif self.rank ==4: 
+                if self.multiplicities == (2,1,1): 
+                    return utils.symmetrize(torch.einsum('abc, ai, aj, bk, cl -> ijkl', 
+                                                         self.weights, self.factors, self.factors, self.factors, self.factors))
+                elif self.multiplicities == (1,2,1): 
+                    return utils.symmetrize(torch.einsum('abc, ai, bj, bk, cl -> ijkl', 
+                                                         self.weights, self.factors, self.factors, self.factors, self.factors))
+                elif self.multiplicities == (1,1,2): 
+                    return utils.symmetrize(torch.einsum('abc, ai, bj, ck, cl -> ijkl', 
+                                                         self.weights, self.factors, self.factors, self.factors, self.factors))
+            else:
+                for i,j,k in itertools.product(range(self.num_factors),repeat =3):
+                    #symmetrize outer products:
+                    #loop over arrangements of factors in outer product
+                    for pos_1, pos_2, pos_3 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                        indices = np.array([i,]*self.rank)
+                        #put jth component in pos_2th position etc.
+                        indices[pos_2] = j
+                        indices[pos_3] = k
+                        outer_prod = self.factors[indices[0],:]
+                        for m in range(1,self.rank):
+                            outer_prod = torch.tensordot(outer_prod,self.factors[indices[m],:], dims =0)
+                        dense_tensor += self.weights[i,j,k]*outer_prod/self.num_arrangements
+                return dense_tensor
         elif self.num_indep_factors == 4:
-            for i,j,k,l in itertools.product(range(self.num_factors),repeat =4):
-                #symmetrize outer products:
-                #loop over arrangements of factors in outer product
-                for pos_1, pos_2, pos_3, pos_4 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
-                    indices = np.array([i,]*self.rank)
-                    #put jth component in pos_2th position etc.
-                    indices[pos_2] = j
-                    indices[pos_3] = k
-                    indices[pos_4] = l
-                    outer_prod = self.factors[indices[0],:]
-                    for m in range(self.rank-1):
-                        outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
-                    dense_tensor += self.weights[i,j,k,l]*outer_prod/self.num_arrangements
+            if self.rank == 4: 
+                sym_weights = utils.symmetrize(self.weights)
+                return torch.einsum('klmo, ka, lb, mc, od -> abcd', sym_weights, self.factors, self.factors, self.factors, self.factors)
+            else: 
+                for i,j,k,l in itertools.product(range(self.num_factors),repeat =4):
+                    #symmetrize outer products:
+                    #loop over arrangements of factors in outer product
+                    for pos_1, pos_2, pos_3, pos_4 in utils.nway_partitions_iterator(list(range(self.rank)), self.multiplicities, num_partitions = False):
+                        indices = np.array([i,]*self.rank)
+                        #put jth component in pos_2th position etc.
+                        indices[pos_2] = j
+                        indices[pos_3] = k
+                        indices[pos_4] = l
+                        outer_prod = self.factors[indices[0],:]
+                        for m in range(self.rank-1):
+                            outer_prod = torch.tensordot(outer_prod,self.factors[indices[m+1],:], dims =0)
+                        dense_tensor += self.weights[i,j,k,l]*outer_prod/self.num_arrangements
             return dense_tensor
         else:
             raise NotImplementedError
             
-            
-    def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
+    def reduce_factors(self): 
         """
-        Contract all indices of the tensor with a matrix `W`.
-        Returns `out`, where
-        
-        .. math::
-           \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+        Ensure a the minimal number of independent factors are stored. 
         """
-        out = self.copy()
-        out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
-        return out
-
-    
-    def multinomial(self, x): 
-        """
-        Contract all indices of the tensor with a vector x, returning:
-        
-        .. math::
-           \sum self_abdc x_a x_b x_c x_d 
-        """
-        if not len(x) == self.dim: 
-            raiseValueError("dimension must match Tensor dimension")
-        num_indep_factors = self.num_indep_factors
-        factors_times_x = torch.einsum('ij,j-> i', self.factors, x)
-        out = sum( self.weights[index]*torch.prod(torch.Tensor([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
-                  for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
-        return out
-
+        if self.rank == 1: 
+            self.factors  = self.todense().unsqueeze(0)
+            self.weights = torch.Tensor([1])
+        elif self.rank == 2:
+            eigvals, eigvecs = eigendecompostition_without_zero_eigs(self.todense())
+            self.weights = eigvals
+            self.factors  = eigvecs.T
+            self.multiplicities = (2,)
+        elif self.rank == 3:  
+            #there can be no reason to have more than dim factors
+            if self.num_factors > self.dim: 
+                if self.num_indep_factors == 1: 
+                    self.weights = torch.einsum('m, mi,mj,mk -> ijk', self.weights, self.factors, self.factors, self.factors)
+                elif self.num_indep_factors == 2:
+                    if self.multiplicities == (2,1):
+                        sym_weights = self.weights
+                    elif self.multiplicities == (1,2):
+                        sym_weights = self.weights.T
+                    self.weights = torch.einsum('mn, mi,mj,nk -> ijk', sym_weights, self.factors, self.factors, self.factors)
+                elif self.num_indep_factors == 3:
+                    self.weights = torch.einsum('mno, mi,nj,ok -> ijk', self.weights, self.factors, self.factors, self.factors)
+                self.multiplicities =(1,1,1)
+                self.factors = torch.eye(self.dim)
+        elif self.rank == 4:  
+            #there can be no reason to have more than dim factors
+            if self.num_factors > self.dim: 
+                if self.num_indep_factors == 1: 
+                    self.weights = torch.einsum('m, mi,mj,mk, ml -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors)
+                elif self.num_indep_factors == 2:
+                    if self.multiplicities ==(2,2): 
+                        self.weights = torch.einsum('mn, mi,mj,nk,nl -> ijkl', sym_weights, self.factors, self.factors, self.factors, self.factors)
+                    else: 
+                        if self.multiplicities == (3,1):
+                            sym_weights = self.weights
+                        elif self.multiplicities == (1,3):
+                            sym_weights = self.weights.T
+                        self.weights = torch.einsum('mn, mi,mj,mk,nl -> ijkl', sym_weights, self.factors, self.factors, self.factors, self.factors)
+                elif self.num_indep_factors == 3:
+                    if self.multiplicities[0]== 2: 
+                        weight_index = "mno"
+                    elif self.multiplicities[1]== 2:
+                        weight_index = "nmo"
+                    elif self.multiplicities[2]== 2:
+                        weight_index = "nom"
+                    self.weights =  torch.einsum(weight_index +', mi,mj,ok,nl -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors)
+                
+                elif self.num_indep_factors == 4:
+                    self.weights = torch.einsum('mnop, mi,nj,ok, pl -> ijkl', self.weights, self.factors, self.factors, self.factors, self.factors)
+                self.multiplicities =(1,1,1,1)
+                self.factors = torch.eye(self.dim)
 
 # %% [markdown]
 # $\mathtt{out}$
@@ -681,6 +1006,37 @@ def four_factor_test_tensor(d,r, q = 1):
     A.factors =  torch.randn(size =(2,d))+1
     A.multiplicities = (r-3*q,q,q,q)
     return A
+
+
+# %%
+@DecompSymmetricTensor.implements(symalg.contract_all_indices_with_matrix)
+def contract_all_indices_with_matrix(self, W: Array[Any, 2]): 
+    """
+    Contract all indices of the tensor with a matrix `W`.
+    Returns `out`, where
+    
+    .. math::
+       \mathtt{out}_ijkl = \sum self_abdc W_ai W_bj W_ck W_dl 
+    """
+    out = self.copy()
+    out.factors = torch.einsum("mj, jk -> mk", self.factors, W)
+    return out
+
+@DecompSymmetricTensor.implements(symalg.contract_all_indices_with_vector)
+def contract_all_indices_with_vector(self, x): 
+    """
+    Contract all indices of the tensor with a vector x, returning:
+    
+    .. math::
+       \sum self_abdc x_a x_b x_c x_d 
+    """
+    num_indep_factors = self.num_indep_factors
+    #contract factors and vectors
+    factors_times_x = self.factors.numpy()@x
+    #contract over weights
+    out = sum( self.weights.numpy()[index]*np.prod(np.array([factors_times_x[index[m]]**k for m,k in enumerate(self.multiplicities)])) 
+              for index in itertools.product(range(self.num_factors), repeat =  self.num_indep_factors))
+    return out
 
 
 # %% [markdown]
@@ -791,7 +1147,7 @@ def four_factor_test_tensor(d,r, q = 1):
 # The generalization of the scheme outlined above is straightforward.
 
 # %%
-@DecompSymmetricTensor.implements_ufunc(np.add)
+#@DecompSymmetricTensor.implements_ufunc(symalg.add)
 def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor: 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -838,7 +1194,7 @@ def symmetric_add(self, other: DecompSymmetricTensor) -> DecompSymmetricTensor:
 
 
 # %%
-@DecompSymmetricTensor.implements_ufunc(np.multiply)
+#@DecompSymmetricTensor.implements(symalg.multiply)
 def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor: 
     #check if compatible
     if not isinstance(other, float) or isinstance(other, int):
@@ -947,7 +1303,7 @@ def symmetric_multiply(self, other:Number) -> DecompSymmetricTensor:
 # The generalization of the scheme above is straightforward. 
 
 # %%
-@DecompSymmetricTensor.implements(np.outer)
+#@DecompSymmetricTensor.implements(symalg.outer)
 def symmetric_outer(self,other): 
     #check if compatible
     if not isinstance(other, DecompSymmetricTensor): 
@@ -959,7 +1315,7 @@ def symmetric_outer(self,other):
     if not other.num_indep_factors+self.num_indep_factors<=4:
         raise NotImplementedError
     if other.num_indep_factors> self.num_indep_factors: 
-        return np.outer(other, self)
+        return symmetric_outer(other, self)
     
     out = DecompSymmetricTensor(rank = self.rank+other.rank, dim = self.dim)
     out.factors = torch.cat((self.factors , other.factors ), 0) 
@@ -967,7 +1323,7 @@ def symmetric_outer(self,other):
     if self.num_indep_factors ==1 and other.num_indep_factors==1:
         #higher multiplicities come first
         if other.multiplicities[0] > self.multiplicities[0]: 
-            return np.outer(other,self)
+            return symmetric_outer(other,self)
         out.multiplicities = (self.multiplicities[0], other.multiplicities[0])
         out.weights = torch.zeros((out.num_factors,)*2) 
         out.weights[:self.num_factors,self.num_factors:] = torch.einsum('m,n->mn', self.weights, other.weights)
@@ -988,10 +1344,10 @@ def symmetric_outer(self,other):
         out.weights[:self.num_factors,:self.num_factors,self.num_factors:,self.num_factors:] = torch.einsum('mn,op->mnop', self.weights, other.weights)
     return out
 
-
+'''
 @DecompSymmetricTensor.implements_ufunc.outer(np.multiply)
 def symmetric_multiply_outer(self,other): 
-    return np.outer(self,other)
+    return np.outer(self,other)'''
 
 
 
@@ -1052,11 +1408,11 @@ def symmetric_multiply_outer(self,other):
 # \end{align*}
 
 # %%
-@DecompSymmetricTensor.implements(np.tensordot)
-def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int=2) -> Union[DecompSymmetricTensor, float]: 
+@DecompSymmetricTensor.implements(symalg.tensordot)
+def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int=2, return_list = False) -> Union[DecompSymmetricTensor, float]: 
     #check if compatible
     if axes == 0: 
-        return np.outer(self,other)
+        return symmetric_outer(self,other)
     if not isinstance(other, DecompSymmetricTensor): 
         raise TypeError("can only tensordot DecompSymmetricTensor to DecompSymmetricTensor")
     if not self.dim == other.dim: 
@@ -1070,7 +1426,7 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int=2) -> Unio
         #fully decomp tensors 
         if self.num_indep_factors==1:
             if other.multiplicities[0] > self.multiplicities[0]: 
-                return np.tensordot(other,self, axes = axes)
+                return symalg.tensordot(other,self, axes = axes)
             if self.multiplicities[0]>1:
                 out = DecompSymmetricTensor(rank = self.rank+other.rank-2, dim = self.dim)
                 if other.multiplicities[0]>1:
@@ -1187,13 +1543,16 @@ def symmetric_tensordot(self, other: DecompSymmetricTensor, axes: int=2) -> Unio
                                 torch.einsum(indices_in +', '+ 'iz' + ', '+'z' '-> ' + indices_result, 
                                             self.weights, factor_dot, other.weights)
                  #weight with relative number of occurences in symmetrization sum
-                out_tensors += [np.multiply(out,m*1.0/self.rank)]
+                out_tensors += [symmetric_multiply(out,m*1.0/self.rank)]
             
             #sum up to symmetrized result
-            result = out_tensors[0]
-            for tensor in out_tensors[1:]: 
-                result = result + tensor
-            return result 
+            if return_list: 
+                return out_tensors
+            else:
+                result = out_tensors[0]
+                for tensor in out_tensors[1:]: 
+                    result = symmetric_add(result,tensor)
+                return result 
         else:
             raise NotImplementedError("Contraction of two partially decomposed tensors not yet possible")
             
@@ -1249,4 +1608,58 @@ def symmetric_tensorcompare(self, other: DecompSymmetricTensor, axes: int = 2) -
     self_flat = torch.Tensor([self[index] for index in self.indep_iter_repindex()])
     other_flat = torch.Tensor([other[index] for index in other.indep_iter_repindex()])
     return torch.allclose(self_flat,other_flat)
+
+
+# %% [markdown]
+# ### Decomp Tensor from Matrix/Vector
+
+# %%
+def decomp_tensor_from_matrix(matrix, keep = 'all', eigval_cutoff = 0): 
+    """
+    create Decomp tensor from symmetric matrix. 
+    
+    Inputs: 
+    =======
+    matrix: torch.Tensor
+        symmetric matrix
+    keep: Union[str, int] = 'all'
+        if int, keeps only this number of largest (in magnitude) eigenvalues
+        otherwise, all nonzero eigenvalues are kept
+        
+    Returns:
+    =======
+    tensor: DecompSymmetricTensor
+        equivalent decomposed tensor
+    """
+    assert torch.allclose(matrix,matrix.T), "matrix must be symmetric"
+    eigvals, eigvecs = eigendecompostition_without_zero_eigs(matrix, keep = keep, eigval_cutoff = eigval_cutoff )
+    
+    tensor = DecompSymmetricTensor(rank = 2, dim= matrix.shape[0])
+    tensor.multiplicities = (2,)
+    tensor.weights = eigvals
+    tensor.factors = eigvecs.T
+    return tensor
+
+
+# %%
+def decomp_tensor_from_vector(vector): 
+    """
+    create Decomp tensor from vector. 
+    
+    Inputs: 
+    =======
+    vector: torch.Tensor
+        vector
+        
+    Returns:
+    =======
+    tensor: DecompSymmetricTensor
+        equivalent decomposed tensor
+    """
+    dim = len(vector)
+    tensor = DecompSymmetricTensor(rank = 1, dim = dim)
+    tensor.multiplicities = (1,)
+    tensor.weights = torch.Tensor([1])
+    tensor.factors = vector.reshape((1,dim))
+    return tensor
 
