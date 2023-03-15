@@ -58,6 +58,7 @@ from . import utils
 
 # %%
 __all__ = [
+    "symmetrized_op",
     "add", "subtract", "multiply",
     "result_array",
     "outer", "tensordot", "contract_all_indices_with_matrix",
@@ -207,11 +208,13 @@ def symmetrized_op(op, a, b, **kwargs):
     Apply a symmetrized version of a binary `op` on the arguments `a`, `b`.
     Effectively, this simply wraps the statement
 
+    .. code::
+
         utils.symmetrize(op(a, b))
 
     with argument validation and casting of the result.
     Additional arguments to `op` can be specified as keywords.
-    If given, the 'out' argument will be passed to both `op` and `utils.symmetrize`.
+    If given, the `out` argument will be passed to both `op` and `utils.symmetrize`.
 
     SymmetricTensor arguments are converted to dense arrays before applying `op`.
     Therefore providing specialized versions for SymmetricTensor subclasses
@@ -222,7 +225,7 @@ def symmetrized_op(op, a, b, **kwargs):
        underlying memory of a SymmetricTensor. For this generic implementation
        however it provides little to no computational benefit.
 
-    .. TODO:: For symmetric tensor arguments, it should still be possible to
+    .. Todo:: For symmetric tensor arguments, it should still be possible to
        write a version which only operates on independent components, and is
        nonetheless generic.
        Especially, we should return a `SymmetricTensor` whenever possible.
@@ -322,7 +325,7 @@ def outer(ufunc: UfuncWrapper, a, b, **kwargs):
 # %%
 @SymmetricTensor.implements(np.transpose)
 def transpose(a, axes=None):
-    return a.transpose(axes)
+    return a.transpose(axes)  # SymmetricTensor implements this as a no-op
 
 
 # %% [markdown]
@@ -427,9 +430,13 @@ def tensordot(a, b, axes=2):
     .. Warning:: This defines the *symmetrized* form of `tensordot` for SymmetricTensors.
        So results will in general differ between
 
-           np.tensordot(A.todense(), B.todense())
+       .. code-block::
+
+          np.tensordot(A.todense(), B.todense())
 
        and
+
+       .. code-block::
 
            symalg.tensordot(A, B)
     """
@@ -474,9 +481,9 @@ def contract_all_indices_with_matrix(symtensor: SymmetricTensor, W: "array_like"
     .. math::
        C_{ijk} = \sum_{abc} A_{abc} W_{ai} W_{bj} W_{ck}
 
-    if current tensor has rank 3.
+    if :math:`A :=` `symtensor` has rank 3.
     
-    Always returns a `SymmetricTensor` of the same type as `symtensor`
+    Always returns a `SymmetricTensor` of the same type as `symtensor`.
     """
     if not isinstance(symtensor, SymmetricTensor):
         return NotImplemented
@@ -499,8 +506,10 @@ def _contract_all_indices_with_vector_dispatcher(symtensor, x):
 def contract_all_indices_with_vector(symtensor: SymmetricTensor, x: "array_like"
     ) -> Real:
     """
-    For A a symmetric tensor and x a 1D array, compute
-    \sum_{i_1, ..., i_r} A_{i_1,..., i_r} x_{1_1} ... x_{i_r}
+    For :math:`A` a symmetric tensor and :math:`x` an 1D array, compute
+
+    .. math::
+       \sum_{i_1, ..., i_r} A_{i_1,..., i_r} x_{1_1} ... x_{i_r}
     """
     if not isinstance(symtensor, SymmetricTensor):
         return NotImplemented
@@ -550,20 +559,27 @@ def contract_tensor_list(
       n_times: int=1,
       rule: str="second_half"):
     """
-    Do the following contraction:
+    For :math:`A :=` `symtensor`, and :math:`n :=` `n_times`, compute :math:`B` where
 
-    out_{i_1,i_2,..., i_(r-n_times), j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...}
-    = Symmetrize[ \sum_{i_{r-n_times+1}, ..., i_r} outer( symtensor_{i_1,i_2,...,i_r}, tensor_list[i_{r-n_times+1}]_{j_1,j_2,...,j_m} ) ]
+    .. math::
+       B_{i_1,i_2,..., i_{(r - n)}, j_1, j_2, ...j_m, k_1, k_2, ... k_m, ...}
+       = \mathtt{Symmetrize}\left[ \sum_{i_{r - n+1}\\rlap{, ..., i_r}}
+                                   \Bigl( A_{i_1,i_2,...,i_r}
+                                          \,\otimes\,  \mathtt{tensor\_list}[i_{r-n+1}]_{j_1,j_2,...,j_m}
+                                   \\Bigr)
+                            \\right]
 
-    Important: The tensors in tensor_list must be symmetric.
-    This is essentially a way to do a contraction between a symmetric and quasi_symmetric tensor χ. Let
+    Important: The tensors in `tensor_list` must be symmetric.
+    This is essentially a way to do a contraction between a symmetric tensor :math:`A` and quasi-symmetric tensor :math:`χ`. Let
 
-    χ_{i,j_1,j_2,...,j_m} = tensor_list[i]_{j_1,j_2,...j_m}
+    .. math::
+       χ_{i,j_1,j_2,...,j_m} = \mathtt{tensor\_list}[i]_{j_1,j_2,...j_m} \,.
 
-    Then even if χ is not symmetric under exchange of the first indices with the rest, but the subtensors χ_i,...
-    for fixed i are, we can do a contraction along the first index.
+    Then even if :math:`χ` is not symmetric under exchange of the first indices with the rest, but the subtensors :math:`χ_i, \dotsc`
+    for fixed :math:`i` are, we can do a contraction along the first index.
 
-    TODO: Document 'rule' argument
+    .. Todo::
+       Document 'rule' argument
     """
     if isinstance(tensor_list, Iterable_) and not isinstance(tensor_list, Sequence_):
         # Ensure we don’t consume an iterator

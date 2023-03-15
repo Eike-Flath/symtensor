@@ -2,25 +2,30 @@ format: jb-book
 root: README
 
 parts:
-  - caption: Usage examples
+  - caption: User Guide
     chapters:
     - file: Getting_started
-    - file: symtensor_example
+    # - file: symtensor_example
+
+  - caption: API Reference
+    chapters:
+    - file: api/array
+    - file: api/symalg
         
   - caption: Code browser
     chapters:
-    - file: sources/base
+    - file: symtensor/base
     - file: symmetric_formats
       sections:
-      - file: sources/dense_symtensor
-      - file: sources/permcls_symtensor
+      - file: symtensor/dense_symtensor
+      - file: symtensor/permcls_symtensor
       # FIXME: Rename file to decomp_symtensor
-      - file: sources/decomp_symmtensor
+      - file: symtensor/decomp_symmtensor
     - file: backends
       sections:
-      - file: sources/torch_symtensor
-    - file: sources/symalg
-    - file: sources/utils
+      - file: symtensor/torch_symtensor
+    - file: symtensor/symalg
+    - file: symtensor/utils
 
   - caption: Design
     chapters:
@@ -29,12 +34,9 @@ parts:
       - file: developers/comparative_timings
     - file: developers/symmetric_tensor_algdesign
 
-  - caption: API
-    chapters:
-    - file: testing/api
-
   - caption: Testing
     chapters:
+    - file: testing/api
     - file: tests/test_dense_numpy
     - file: tests/test_dense_torch
     - file: tests/test_permcls_numpy

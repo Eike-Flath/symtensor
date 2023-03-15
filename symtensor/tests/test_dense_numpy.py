@@ -22,7 +22,7 @@ from symtensor.testing.api import SymTensorAPI
 from symtensor.testing.utils import Code, NBTestRunner
 
 
-# %% [markdown] tags=["remove-input", "hide-input"]
+# %% [markdown] tags=["remove-cell"]
 # **Explanation of this document structure**
 # This file is meant for two different types of consumption:
 # - As the file `pytest` inspects to obtain the list of tests to run on this SymmetricTensor class
@@ -36,13 +36,13 @@ from symtensor.testing.utils import Code, NBTestRunner
 # To ensure a consistent API across formats and backends, the API usage tests are defined in the generic test class `SymTensorAPI` (it is not prefixed with "Test" to avoid it being picked up by pytest).
 # Adding a new format or backend to the test requires only creating a subclass with a name starting with "Test". This class must define the `SymTensor` fixture as returning the symmetric tensor type to test:
 
-# %%
+# %% tags=["remove-cell"]
 class TestDenseSymtensorAPI(SymTensorAPI):
     @pytest.fixture
     def SymTensor(self):
         return DenseSymmetricTensor
 
-# %% [markdown] tags=["remove-input"]
+# %% [markdown] tags=["remove-cell"]
 # In theory the code above is sufficient to run the full battery of standardized API tests on the this SymmetricTensor subclass when running `pytest` on the command line.
 # In practice, certain subclasses might require that some tests need be specialized or deactivated; this we do by redefining them in code cells below.
 # We can also add tests specific to a symmetric tensor type.

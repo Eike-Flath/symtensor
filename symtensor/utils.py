@@ -461,24 +461,41 @@ def astype(a, dtype):
 def empty_array_like(like, shape: Tuple[int,...], dtype=None):
     """
     Return an empty array-like, of the same type as the `like` argument.
+
+    Differences compared to ``np.empty(shape, dtype=dtype, like=like)``:
+
+    - PyTorch tensors are supported; other types can be added, even if they
+      don’t implement the `__array_function__` protocol.
+    - For subclasses of `SymmetricTensors`, an array-like of the corresponding
+      *backend* format is returned.
     
-    :param:like: Either:
-      - An instance of an array type, like `numpy.ndarray` or `torch.Tensor`.
-      - An instance of a `SymmetricTensor` subclass. In this case, the `empty`
-        method of the SymmetricTensor’s backend is used.
-      Note that this argument *can not* be pased by keyword.
-    :param:shape:
-    :param:dtype:
-        See `numpy.empty`.
+    Parameters
+    ----------
+    like:
+       Either
+
+       - An instance of an array type, like `numpy.ndarray` or `torch.Tensor`, or
+       - An instance of a `SymmetricTensor` subclass. In this case, the `empty`
+         method of the SymmetricTensor’s backend is used.
+
+       Note that this argument *can not* be pased by keyword.
+    shape:
+    dtype:
+       See `numpy.empty`.
     
-    .. Important:: To support torch Tensors, make sure to first import
-       `symtensor.torch_symtensor`. Similarly for subclasses of `SymmetricTensor`
+    Important
+    ---------
+    To support torch Tensors, make sure to first import
+    `symtensor.torch_symtensor`. Similarly for  subclasses of `SymmetricTensor`:
+    the corresponding module must first be imported.
     
-    .. Note:: This function is not equivalent to `numpy.empty` when when `like`
-       is a `SymmetricTensor` subclass. `numpy.empty` in that case would return
-       an empty `SymmetricTensor` of the same subclass, whereas 
-       ``empty_array(like=PermClsSymmetricTensor(…), …)`` would return an empty
-       *NumPy* array. 
+    Note
+    ----
+    This function is not equivalent to `numpy.empty` when `like`
+    is a `SymmetricTensor` subclass. In that case `numpy.empty` would return
+    an empty `SymmetricTensor` of the same subclass, whereas 
+    ``empty_array_like(PermClsSymmetricTensor(…), …)`` would return an empty
+    *NumPy* array. 
     """
     return np.empty(shape, dtype=dtype, like=like)
 

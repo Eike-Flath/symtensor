@@ -412,12 +412,12 @@ class DecompSymmetricTensor(TorchSymmetricTensor, PermClsSymmetricTensor):
         """
         Find min. number of multiplicities such that multiplicities are equal.
         
-        Inputs: 
-        =======
+        Parameters 
+        ----------
         other: Tensor to which multiplicities should be matched.
         
-        Returns: 
-        ========
+        Returns
+        -------
         m: tuple[int]
             new multiplicity
         

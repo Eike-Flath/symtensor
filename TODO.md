@@ -1,17 +1,24 @@
+### Fix symalg
+
+- [ ] Extend (np.add, np.sub, np.mul) to non-symmetric args, so they aren't completely equivalent functions to (symalg.add, symalg.sub, symalg.mul)
+
+
 ### Package migration & cleaning
 
-- Replace any use of `exenv` by jupytext tags
-- Replace any use of `__main__` by jupytext tags
-- Figure out what `get_idx` does, update docstring and remove statGLOW dep
-- Remove mackelab_toolbox dependencies (include code here if necessary)
-  + TimeThis (testing / profiling only)
-  + total_size_handler
-  + GitSHA
-- Find how to specify dev / testing requirements
-- Remove Pydantic dependency? We could include the type coercion in the `Data.encode` methods (defined in base.py and torch_symtensor.py)
-- Implement `symmetric_outer` and `symmetric_tensordot` in PermClsSymmetricTensor
-- [PermClsSymmetricTensor] Deserialization of stringified σcls tuples is currently in two places: `Data.decode` and `_validate_data` (dict branch)
+- [ ] Replace any use of `exenv` by jupytext tags
+- [ ] Replace any use of `__main__` by jupytext tags
+- [ ] Figure out what `get_idx` does, update docstring and remove statGLOW dep
+- [ ] Remove mackelab_toolbox dependencies (include code here if necessary)
+  + [ ] TimeThis (testing / profiling only)
+  + [ ] total_size_handler
+  + [ ] GitSHA
+- [ ] Find how to specify dev / testing requirements
+- [ ] Remove Pydantic dependency? We could include the type coercion in the `Data.encode` methods (defined in base.py and torch_symtensor.py)
+- [ ] Implement `symmetric_outer` and `symmetric_tensordot` in PermClsSymmetricTensor  
+  (Currently they use the non-optimized generic versions.)
+- [ ] [PermClsSymmetricTensor] Deserialization of stringified σcls tuples is currently in two places: `Data.decode` and `_validate_data` (dict branch)
   Should be consolidated into one place.
+- [ ] Exclude the decomp_symmtensor from initial version, since it is still prototype.
 
 ### CPU to GPU:
 We want to move heavy calculations from CPU to GPU using `pytorch`.
@@ -22,17 +29,17 @@ To do this we must:
     I already added a property `SymmetricTensor.device` which should automatically give us the right pytorch device (CPU or GPU)
     - [ ] if `SymmetricTensor` is initialized with data dictionary, ensure that the data is stored as `torch.Tensor` on the right device
     - [ ] if `__setitem__()` is called, ensure that the data are stored on the right device **(?)**
-    - [ ] Rewrite `__getitem__` for pytorch **(?)**
-    - [ ] Rewrite `indep_iter` for pytorch
+    - [X] Rewrite `__getitem__` for pytorch **(?)**
+    - [X] Rewrite `indep_iter` for pytorch
   - [ ] Ensure data manipulations are done on GPU:
-     - [ ] Rewrite `__array_ufunc_` for torch functions
-     - [ ] Rewrite `__array_function_` for torch functions **if necessary?**
+     - [X] Rewrite `__array_ufunc_` for torch functions
+     - [X] Rewrite `__array_function_` for torch functions **if necessary?**
           AR doesn't think `__array_function__` needs to be rewritten, but the four associated one-line functions decorated with `SymmetricTensor.implements` we might as well adapt for Pytorch. `asarray` and `tensordot` should be trivial, since PyTorch supports them. The other two functions we can explicitely disallow (by commenting them out basically), and if we really need them later we can add them at that time.
-     - [ ] Rewrite `tensordot` for pytorch
-     - [ ] Rewrite `outer_product` for pytorch
-     - [ ] Rewrite `contract_all_indices_with_matrix` for pytorch in Schatz paper fig 3 way
-     - [ ] Rewrite `contract_tensor_list` for pytorch
-     - [ ] Rewrite `contract_all_indices_with_vector` for pytorch
+     - [X] Rewrite `tensordot` for pytorch
+     - [X] Rewrite `outer_product` for pytorch
+     - [X] Rewrite `contract_all_indices_with_matrix` for pytorch in Schatz paper fig 3 way
+     - [X] Rewrite `contract_tensor_list` for pytorch
+     - [X] Rewrite `contract_all_indices_with_vector` for pytorch
 
 
 We could do this while preserving the functions which use numpy or do everything new in torch.

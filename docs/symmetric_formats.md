@@ -1,5 +1,5 @@
 # Symmetric tensor formats
 
-- [Dense format](sources/dense_symtensor)
-- [σ-class format](sources/permcls_symtensor)
-- [Hierarchical format](sources/decomp_symmtensor)
+- [Dense format](symtensor/dense_symtensor)
+- [σ-class format](symtensor/permcls_symtensor)
+- [Hierarchical format](symtensor/decomp_symmtensor)

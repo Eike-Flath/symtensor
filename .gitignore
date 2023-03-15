@@ -1,4 +1,5 @@
 build
+docs/*.sh
 *.egg-info
 *.ipynb_checkpoints
 .coverage

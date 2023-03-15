@@ -81,7 +81,7 @@ Here again, an efficient solution might be possible with lexicographic storage. 
 
 ### Supported array operations.
 
-See the [implementation page](./sources/base.py#Implementation-of-the-__array_function__-protocol).
+See the [implementation page](./symtensor/base.py#Implementation-of-the-__array_function__-protocol).
 
 ## Notation
 
@@ -99,9 +99,9 @@ See the [implementation page](./sources/base.py#Implementation-of-the-__array_fu
   
   Thus the existence of a permutation such that $I' = σ(I)$ defines an equivalence relation on the set of multi-indices. An *index class* is the set of all indices satisfying this relation, and is denoted by with a representative element of that classes:
   
-  $$\hat{I} := \{I' \in \mathbb{R}^r | \exists σ \in S_r, I' = σ(I)\} \,.$$
+  $$\hat{I} := \{I' \in \mathbb{R}^r \mid \exists σ \in S_r, I' = σ(I)\} \,.$$
 
-~ The representative depends on the data format. For dense tensors, we sort indices lexicographically. For σ-class tensors, we groupe equal indices, sorting groups first in decreasing multiplicity, and then in increasing index value. In both formats, the first of these sorted indices is the representative index.
+~ The representative depends on the data format. For dense tensors, we sort indices lexicographically. For permutation class tensors, we groupe equal indices, sorting groups first in decreasing multiplicity, and then in increasing index value. In both formats, the first of these sorted indices is the representative index.
 
 **Permutation class (aka σ-class)**  
 ~ A *permutation class* is a set of index classes which have the same index repetition pattern; for example, $\widehat{1110}$ and $\widehat{2220}$ both have four indices, with one repeated three times. We can represent these classes in two different ways:
@@ -152,7 +152,7 @@ More examples:
 ## Usage
 
 :::{caution}  
-Symmetric tensors with [different memory layouts](./symmetric_formats.md) are provided. For the examples below we use the [dense](sources/dense_symtensor) layout; this is in some sense the reference format: since it simply wraps a NumPy `ndarray` with the `SymmetricTensor` API, support for NumPy functionality is often simple. However it also provides no data compression at all, so in practice one of the compressed formats are generally better suited.  
+Symmetric tensors with [different memory layouts](./symmetric_formats.md) are provided. For the examples below we use the [dense](symtensor/dense_symtensor) layout; this is in some sense the reference format: since it simply wraps a NumPy `ndarray` with the `SymmetricTensor` API, support for NumPy functionality is often simple. However it also provides no data compression at all, so in practice one of the compressed formats are generally better suited.  
 :::
 
 ```{code-cell} ipython3

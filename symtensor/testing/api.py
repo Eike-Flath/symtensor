@@ -16,12 +16,14 @@
 #
 # This defines the generic API which subclasses of `SymmetricTensor` provide.
 
-# %% [markdown] tags=["remove-input"]
+# %% [markdown] tags=["remove-cell"]
 # **Explanation of this document structure**
 # This file is meant for two different types of consumption:
 # - As the file defining `pytest` tests for the SymmetricTensor API.
 # - For Jupyter Book to produce browsable documentation for those tests.
 #
+
+# %% [markdown]
 # To ensure a consistent API across formats and backends, the test suite for each subclass of `SymmetricTensor` subclasses the `SymTensorAPI` defined here, adjusting it for that particular subclass. In particular, each test suite needs to define the `SymTensor` fixture defining the subclass to test.
 #
 # The test suites also reprint the source code for each test (substituting their class for `SymTensor`, thus serving as a kind of auto-generated documentation for each subclass. For example, the docs page generated from the test suite for `PermClsTorchSymmetricTensor` can serve as a self-contained, exhaustive list of examples for the usage examples supported and tested with that particular subclass.

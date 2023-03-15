@@ -72,8 +72,15 @@ repository:
 sphinx:
   extra_extensions          :   # A list of extra extensions to load by Sphinx (added to those already used by JB).
     # - myst_nb_bokeh
+    - sphinx.ext.autodoc
+    - sphinx.ext.napoleon
+    - sphinx.ext.todo
+    #- sphinx_exec_code
   local_extensions          :   # A list of local extensions to load by sphinx specified by "name: path" items
   config:                       # key-value pairs to directly over-ride the Sphinx configuration
+    html_theme              : sphinx_book_theme
+    todo_include_todos      : true
+    autodoc_typehints       : description
     nb_custom_formats:
         .py:
             - jupytext.reads

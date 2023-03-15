@@ -45,17 +45,16 @@ from scityping import Number, Serializable
 from scityping.numpy import Array, DType
 from scityping.pydantic import dataclass
 
-# %% tags=["active-ipynb"]
+# %% [markdown] tags=["remove-cell"]
 # Notebook only imports
 
 # %% tags=["active-ipynb"]
-# from symtensor import utils #CM:Does not work for me.... # AR: I think this is fixed now for you
-# #import utils as utils  # AR: This will break as soon as you execute from another directory (e.g. the gmm folder)
+# from symtensor import utils
 
-# %% [markdown] tags=[]
+# %% [markdown] tags=["remove-cell"]
 # Script only imports
 
-# %% tags=["active-py"]
+# %% tags=["active-py", "remove-cell"]
 from . import utils
 
 # %%
@@ -169,9 +168,13 @@ logger = logging.getLogger(__name__)
 # ## Implementation
 
 # %% [markdown]
-# > **Note**: There is a bijective map between string representations of permutation classes – `'iijk'` – and count representations – `(2,1,1)`. Public methods of `SymmetricTensor` use strings, while private methods use counts.
+# :::{NOTE}
+# There is a bijective map between string representations of permutation classes – `'iijk'` – and count representations – `(2,1,1)`. Public methods of `SymmetricTensor` use strings, while private methods use counts.
+# :::
 #
-# > **Note**: The underlying `_data` object must either be an array, or a dictionary of arrays. Or at least, they must support views, so that they may be used as the 'out' parameter to ufuncs.
+# :::{NOTE}
+# The underlying `_data` object must either be an array, or a dictionary of arrays. Or at least, they must support views, so that they may be used as the 'out' parameter to ufuncs.
+# :::
 
 # %% [markdown]
 # ### `SymmetricTensor`
@@ -1150,14 +1153,14 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
            ``at``. ``at`` is always an in-place operation and is at present
            NOT supported. (Although we believe it would be possible to do so.)
         """
-        # All unary ufuncs should have the "()->()" signature and are
-        # therefore easily supported: just apply them to the data.
+        # All unary ufuncs should have the "()->()" signature and are therefore
+        # easily supported for most formats: just apply them to the data.
         assert ufunc.signature is None, "Default unary operation only supports ufuncs with '()->()' signature."
         assert method == "__call__"  # Only other allowed unary ufunc is 'at', which we excluded above
         assert ufunc.nin == 1, "Unary ufunc should have 1 argument."
 
         A, = inputs
-        # Standardize ’outs’ to a tuple, like __array_function__
+        # Standardize 'outs' to a tuple, like __array_function__
         outs = kwargs.pop("out", ())
         if not isinstance(outs, tuple):
             outs = (outs,)
@@ -1195,7 +1198,7 @@ class SymmetricTensor(Serializable, np.lib.mixins.NDArrayOperatorsMixin, ABC):
         `SymmetricTensor`s. Only ufuncs with the signature ``(),()->()`` are
         supported (which is the majority).
 
-        .. Note:: One the ``__call__`` method is supported by this default.
+        .. Note:: Only the ``__call__`` method is supported by this default.
            Additional default methods for other methods like ``accumulate``
            could be implemented, if needed.
         """
@@ -1795,7 +1798,7 @@ def result_symtensor(*arrays_and_types) -> Type[SymmetricTensor]:
 # ### Specialization of our own utility functions
 
 # %% [markdown]
-# #### `empty_array`
+# #### `empty_array_like`
 #
 # The default backend for `SymmetricTensor` is NumPy arrays. Subclasses for different backends (like `TorchSymmetricTensor`) should redefine this to return an appropriate object.
 
