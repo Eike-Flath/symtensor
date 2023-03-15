@@ -192,10 +192,10 @@ class DenseSymmetricTensor(SymmetricTensor):
             if np.ndim(new_data) == 0:
                 return new_data
             else:
-                return DenseSymmetricTensor(
+                return self.__class__(  # Avoids the need to redefine for different backends
                     rank=new_data.ndim, dim=self.dim, data=self._data[key])
         else:
-            return DenseSymmetricTensor(
+            return self.__class__(
                 rank=self.rank-1, dim=self.dim, data=self._data[key])
 
     def __setitem__(self, key, value):

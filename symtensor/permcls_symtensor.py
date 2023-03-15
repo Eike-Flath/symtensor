@@ -728,11 +728,13 @@ class PermClsSymmetricTensor(SymmetricTensor):
         .. Note:: slices with bounds (e.g. [3:8]) are not yet supported.
         """
         if isinstance(key, str):
+            # str index => select perm class
             counts = utils.permclass_label_to_counts(key)
             return self._data[counts]
 
         elif isinstance(key, tuple):
             if any([isinstance(i,slice) for i in key]) or isinstance(key, slice):
+                # Index involves a slice => convert to integer indices
                 indices_fixed = tuple(i for i in key if isinstance(i,int))
                 slices = [i for i in key if isinstance(i,slice)]
                 assert len(indices_fixed) + len(slices) == len(key), "SymmetricTensor index should contain only integers and slices."
@@ -743,14 +745,17 @@ class PermClsSymmetricTensor(SymmetricTensor):
                                                   " currently implemented. Only slices of the type"
                                                   "[i_1,...,i_n,:,...,:] with i_1,..., i_n all integers are allowed.")
 
-                key = indices_fixed
+                key = indices_fixed  # Order does not matter => Just drop the `:` slices from the key
+            # NB: Current implementation allows only `:` slices
             if len(key) < self.rank:
+                # Fewer indices than rank => return a lower rank Symtensor
                 new_rank = self.rank - len(key)
-                C = PermClsSymmetricTensor(rank=new_rank, dim=self.dim)
+                C = self.__class__(rank=new_rank, dim=self.dim)  # __class__ avoids the need to reimplement for different backends
                 for idx in C.indep_iter_repindex():
                     C[idx] = self[idx + key]
                 return C
             else:
+                # As many indices as rank => return scalar
                 σcls = utils._get_permclass(key)
                 vals = self._data[σcls]
                 if np.ndim(vals) == 0:
