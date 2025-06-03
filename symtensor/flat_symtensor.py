@@ -132,7 +132,10 @@ class FlatSymmetricTensor(base.SymmetricTensor):
         self._data = arrn = 10
 
     def change_array_type(self, array_type: Callable[[_Array[1]], _Array[1]]):
-        self._data = array_type(self._data)
+        if array_type == np.array and hasattr(self._data, "todense"):
+            self._data = self._data.todense()
+        else:
+            self._data = array_type(self._data)
         assert self._data.shape == (self.size,)
 
     @property
