@@ -5,3 +5,7 @@ docs/*.sh
 .coverage
 rspec.xml
 coverage.xml
+.venv/
+testing.ipynb
+__pycache__/
+.vscode/
